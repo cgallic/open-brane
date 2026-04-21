@@ -1,0 +1,32 @@
+[Unit]
+Description=Brain MCP server (stdio ↔ HTTP/SSE via mcp-proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# If you're using Tailscale and want to bind to the tailnet IP, uncomment:
+# ExecStartPre=/bin/sh -c 'until tailscale ip -4 >/dev/null 2>&1; do sleep 1; done'
+
+# Replace placeholders:
+#   <BRAIN_ROOT>     e.g. /var/lib/open-brane
+#   <BIND_HOST>      e.g. 127.0.0.1 (localhost) or your Tailscale IP
+#   <BIND_PORT>      e.g. 7778
+ExecStart=<BRAIN_ROOT>/.venv/bin/mcp-proxy \
+    --host <BIND_HOST> \
+    --port <BIND_PORT> \
+    <BRAIN_ROOT>/.venv/bin/python <BRAIN_ROOT>/scripts/mcp_server.py
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:<BRAIN_ROOT>/logs/brain-mcp.log
+StandardError=append:<BRAIN_ROOT>/logs/brain-mcp.log
+
+Environment=BRAIN_ROOT=<BRAIN_ROOT>
+Environment=BRAIN_DB=<BRAIN_ROOT>/events.db
+Environment=OLLAMA_URL=http://127.0.0.1:11434
+Environment=QDRANT_URL=http://127.0.0.1:6333
+
+[Install]
+WantedBy=multi-user.target

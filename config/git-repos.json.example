@@ -1,0 +1,7 @@
+{
+  "repos": [
+    {"path": "/var/www/app-api", "name": "app-api"},
+    {"path": "/var/www/app-frontend", "name": "app-frontend"},
+    {"path": "/home/you/work/skills", "name": "skills"}
+  ]
+}

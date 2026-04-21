@@ -1,0 +1,40 @@
+# The brain itself — never commit
+events.db
+events.db-wal
+events.db-shm
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Local config (keep .example templates, ignore real configs with tokens/paths)
+config/*.json
+!config/*.json.example
+
+# OAuth tokens
+*credentials*.json
+*token*.json
+*.pem
+
+# Qdrant persistence
+qdrant_storage/
+
+# Logs
+logs/
+*.log
+
+# External sync snapshots
+external/
+
+# Rendered views (rebuildable)
+vault/
+wiki/
+journal/
+
+# OS
+.DS_Store
+Thumbs.db

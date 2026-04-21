@@ -1,0 +1,10 @@
+{
+  "sources": [
+    {
+      "name": "example-blog",
+      "url": "https://example.com/blog",
+      "selector": "article",
+      "interval_hours": 24
+    }
+  ]
+}

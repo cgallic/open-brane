@@ -1,0 +1,12 @@
+{
+  "drive_root": "G:/My Drive",
+  "include_extensions": [".pdf", ".docx", ".txt", ".csv", ".md", ".xlsx", ".xls", ".pptx", ".html", ".htm", ".json", ".eml", ".tsv", ".rtf"],
+  "google_extensions": [".gdoc", ".gsheet"],
+  "exclude_folders": [".git", "node_modules", "__pycache__", ".venv", "venv", "backups"],
+  "max_file_size_mb": 50,
+  "chunk_size_chars": 3800,
+  "chunk_overlap_chars": 200,
+  "max_chunks_per_file": 20,
+  "google_api_credentials": "config/gdrive-credentials.json",
+  "google_api_token": "config/gdrive-token.json"
+}
