@@ -114,6 +114,8 @@ Every adapter is idempotent. Re-run is a no-op. Cron is the retry loop. `health_
 
 **To add an MCP tool**: edit `scripts/mcp_server.py`, add a `@mcp.tool()` function, restart the service.
 
+**To add a daily reflection layer**: see `docs/PATTERN-SCANNER.md` — a four-stage loop (scan → rate → research → promote) that surfaces cross-project tensions, lets you rate them with one click, and auto-suppresses noise. Reference impl, not yet ported as standalone scripts.
+
 ## License
 
 MIT. See `LICENSE`.
