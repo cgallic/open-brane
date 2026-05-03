@@ -123,3 +123,9 @@ MIT. See `LICENSE`.
 ## Credits
 
 Built as the persistent-memory layer for a personal agent mesh. Inspired by Karpathy's wiki-style knowledge indexes, the [Ralph autonomous-loop pattern](https://ghuntley.com/ralph/), and a general exhaustion with frameworks that do 20% of what you need in 80% of the complexity.
+
+## Related links
+
+- [MeetKai](https://meetkai.xyz) — the operator layer behind Kai CMO workflows.
+- [KaiCalls](https://kaicalls.com) — AI voice agents for small-business phone answering and lead capture.
+- [Connor Gallic](https://connorgallic.com) — founder building Kai, KaiCalls, and AI automation systems.
