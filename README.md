@@ -27,11 +27,16 @@ open-brane/
 │   ├── embed_events.py        ← events → Qdrant (incremental, idempotent)
 │   ├── semantic_search.py     ← vector search + payload join
 │   ├── health_check.py        ← probe Ollama + Qdrant + events.db
+│   ├── policy_check.py        ← unsafe-write filter (secrets, size, code blobs)
 │   ├── ingest_gdrive.py       ← Drive extract → events (canonical adapter)
 │   ├── ingest_claude.py       ← Claude Code sessions → events
 │   ├── ingest_git.py          ← git log / gh api → events
 │   ├── gdrive_extractor.py    ← runs on the machine with Drive mounted
 │   └── mcp_server.py          ← MCP stdio server
+├── schemas/                   ← optional sidecar schemas, apply à la carte
+│   ├── governance.sql         ← provenance / review / use-policy invariant
+│   ├── recall_traces.sql      ← log every retrieval + which items the agent used
+│   └── edges.sql              ← typed reasoning edges with temporal validity
 ├── config/
 │   ├── gdrive-sources.json.example
 │   ├── git-repos.json.example
@@ -41,7 +46,10 @@ open-brane/
 └── docs/
     ├── ADAPTERS.md            ← how to write a new ingest adapter
     ├── STRUCTURED-OUTPUTS.md  ← the skill-output-contract pattern
-    └── CONDUCTOR-FLOW.md      ← long-running multi-agent orchestration
+    ├── CONDUCTOR-FLOW.md      ← long-running multi-agent orchestration
+    ├── GOVERNANCE.md          ← agent-memory trust layer (apply with governance.sql)
+    ├── RECALL-TRACE.md        ← closing the retrieval feedback loop
+    └── EDGES.md               ← typed reasoning edges, supports/contradicts/etc.
 ```
 
 ## Quickstart
@@ -105,6 +113,18 @@ Every adapter is idempotent. Re-run is a no-op. Cron is the retry loop. `health_
 | Qdrant | Single Docker container, handles persistence itself. Swap for pgvector if you prefer. |
 | MCP (Model Context Protocol) | The lingua franca for agent↔tool interfaces. Claude Code, Cursor, custom agents all speak it. |
 | Python 3.11+ | stdlib does 90% of the work. External deps: httpx, qdrant-client, mcp. |
+
+## Optional sidecar schemas
+
+The core is one `events` table. That's the contract. But once you have agents *writing* events (not just adapters), three additional schemas are worth applying:
+
+| Schema | What it adds | Doc |
+|---|---|---|
+| `schemas/governance.sql` | Per-event provenance + review state + use-policy. Enforces "agents cannot self-promote their own writes to instruction-grade" via a SQL CHECK constraint. | `docs/GOVERNANCE.md` |
+| `schemas/recall_traces.sql` | Every retrieval writes a trace; agent reports back which items it used. Surfaces dead-weight events and bad queries. | `docs/RECALL-TRACE.md` |
+| `schemas/edges.sql` | Typed reasoning edges (supports / contradicts / supersedes / depends_on) with weight, decay, and temporal validity. Powers a `questioned_decisions` view: "active decisions that have surfaced contradictions". | `docs/EDGES.md` |
+
+All three are additive and idempotent — apply à la carte. `scripts/policy_check.py` is the matching write-side filter: catches secrets, oversized payloads, and code blobs before they hit the brain.
 
 ## Extending
 
