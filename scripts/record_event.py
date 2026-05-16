@@ -19,7 +19,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from policy_check import PolicyError, check as policy_check
+
 DB = Path(os.environ.get("BRAIN_DB", Path(__file__).resolve().parent.parent / "events.db"))
+
+# strict | sanitize | off. See docs/RECALL-TRACE.md "Unsafe-write filter".
+POLICY_MODE = os.environ.get("BRAIN_POLICY_MODE", "strict").lower()
 
 
 def now_iso():
@@ -51,6 +56,26 @@ def main():
     except json.JSONDecodeError as e:
         sys.stderr.write("payload is not valid JSON: {0}\n".format(e))
         sys.exit(1)
+
+    # Policy filter: catches secrets, oversize payloads, code blobs, transcript
+    # dumps to wrong source. Set BRAIN_POLICY_MODE=off to bypass (not recommended).
+    if POLICY_MODE != "off":
+        try:
+            if POLICY_MODE == "sanitize":
+                payload, warnings = policy_check(
+                    source=args.source, etype=args.etype,
+                    payload_raw=payload, mode="sanitize",
+                )
+                for w in warnings:
+                    sys.stderr.write("policy warn: {0}\n".format(w))
+            else:
+                payload = policy_check(
+                    source=args.source, etype=args.etype,
+                    payload_raw=payload, mode="strict",
+                )
+        except PolicyError as e:
+            sys.stderr.write("policy_check rejected: {0}\n".format(e))
+            sys.exit(2)
 
     ts = args.ts or now_iso()
     ingested_at = now_iso()
