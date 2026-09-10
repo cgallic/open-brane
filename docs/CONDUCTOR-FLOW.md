@@ -198,7 +198,6 @@ The name matters less than the shape: **a persistent file (or DB row) is the sta
 
 - Google ADK (Agent Development Kit) — `google.github.io/adk-docs` (search "Flow")
 - Anthropic's "Building effective agents" post — hierarchical vs flat orchestration tradeoffs
-- `ghuntley.com/ralph` — the Ralph Wiggum autonomous loop pattern (related: memory via text files + git)
 
 ## Integration with Open Brane
 
