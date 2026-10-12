@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Open Brane deployment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "business_id", "database"],
+  "properties": {
+    "version": {"const": 1},
+    "business_id": {"type": "string", "minLength": 1},
+    "database": {"type": "string", "minLength": 1, "description": "Resolved relative to this configuration file."},
+    "policy_mode": {"enum": ["strict", "sanitize"], "default": "strict"},
+    "vectors": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "ollama_url": {"type": "string", "format": "uri"},
+        "qdrant_url": {"type": "string", "format": "uri"},
+        "model": {"type": "string", "minLength": 1},
+        "dimensions": {"type": "integer", "minimum": 1},
+        "collection": {"type": "string", "minLength": 1}
+      }
+    },
+    "crm": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "default": "event", "description": "event, supabase, or python_module:factory"},
+        "options": {"type": "object", "description": "Provider options; secrets supplied through environment variables."}
+      }
+    }
+  }
+}

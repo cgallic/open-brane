@@ -8,9 +8,9 @@ No framework. No ORM. No workflow engine. Fits on a USB stick.
 
 ## The idea in one paragraph
 
-Every source you care about gets normalized into **one append-only SQLite table called `events`**. That table is the source of truth. Everything downstream — Obsidian pages, dashboards, semantic search, agent context packets — is rebuilt from it. One write path (`record_event.py`). Re-run anything and nothing breaks. If a view gets corrupted, delete it and rebuild from events. The brain itself never gets corrupted because it's append-only.
+Every source you care about gets normalized into **one append-only SQLite table called `events`**. That table is the source of truth. Everything downstream — Obsidian pages, dashboards, semantic search, agent context packets — can be rebuilt from it. One write path (`record_event.py`). Corrections append new events. Append-only is an application convention; keep backups of the database and external attachments.
 
-Agents hit a local [MCP](https://modelcontextprotocol.io) server, never the DB directly. They can `record_event`, `query_events`, or `semantic_search` — and that's the whole API.
+Agents use a local [MCP](https://modelcontextprotocol.io) server to write and retrieve events, report recall usage, propose reasoning edges, and work with contacts, deals, and outreach history. The reusable starter loads this existing server from one JSON configuration. See [the starter guide](docs/STARTER.md) for configuration and provider contracts.
 
 ## What you get
 
@@ -23,6 +23,10 @@ open-brane/
 ├── requirements.txt
 ├── scripts/
 │   ├── record_event.py        ← the only write path
+│   ├── starter.py             ← validate / initialize / diagnose / run / embed
+│   ├── runtime_config.py      ← deployment JSON → existing environment API
+│   ├── crm.py                 ← event-backed contacts, deals, outreach checks
+│   ├── crm_providers.py       ← optional read-only external contact facts
 │   ├── query_events.py        ← filtered reader
 │   ├── embed_events.py        ← events → Qdrant (incremental, idempotent)
 │   ├── semantic_search.py     ← vector search + payload join
@@ -38,12 +42,15 @@ open-brane/
 │   ├── recall_traces.sql      ← log every retrieval + which items the agent used
 │   └── edges.sql              ← typed reasoning edges with temporal validity
 ├── config/
+│   ├── starter.example.json   ← copy and replace your deployment settings
+│   ├── starter.schema.json    ← configuration shape
 │   ├── gdrive-sources.json.example
 │   ├── git-repos.json.example
 │   └── web-sources.json.example
 ├── systemd/
 │   └── brain-mcp.service      ← template (swap BRAIN_ROOT + bind host)
 └── docs/
+    ├── STARTER.md             ← portable setup, MCP tools, CRM provider ABI
     ├── ADAPTERS.md            ← how to write a new ingest adapter
     ├── STRUCTURED-OUTPUTS.md  ← the skill-output-contract pattern
     ├── CONDUCTOR-FLOW.md      ← long-running multi-agent orchestration
@@ -54,35 +61,40 @@ open-brane/
 
 ## Quickstart
 
-On Linux (Ubuntu/Debian):
+Python 3.11+ is required. The default configuration runs the event store and CRM tools without Ollama or Qdrant.
+
+Clone and create an environment:
 
 ```bash
-# System deps
-sudo apt install -y sqlite3 python3-venv
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull nomic-embed-text
-docker run -d --name qdrant -p 6333:6333 \
-    -v $HOME/qdrant_storage:/qdrant/storage qdrant/qdrant
-
-# Clone and install
-git clone https://github.com/cgallic/open-brane /var/lib/open-brane
-cd /var/lib/open-brane
+git clone https://github.com/cgallic/open-brane.git
+cd open-brane
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-
-# Initialize the DB
-sqlite3 events.db < SCHEMA.sql
-
-# Smoke test
-export BRAIN_DB=$(pwd)/events.db
-echo '{"summary":"first event"}' | ./scripts/record_event.py \
-    --source manual --type note --payload-stdin
-./scripts/query_events.py --limit 5
-./scripts/health_check.py
+python -m pip install -r requirements.txt
+cp config/starter.example.json config/starter.json
 ```
 
-If `health_check.py` prints `"all_healthy": true`, you're running. Wire up adapters from there — see `docs/ADAPTERS.md` for the pattern.
+On Windows PowerShell, use these environment commands after cloning:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item config/starter.example.json config/starter.json
+```
+
+Replace `business_id` in `config/starter.json` with your business identifier. The example database path resolves to `data/events.db` inside this copy. Then run, on either platform:
+
+```text
+python scripts/starter.py validate --config config/starter.json
+python scripts/starter.py init --config config/starter.json
+python scripts/starter.py doctor --config config/starter.json
+python scripts/starter.py run --config config/starter.json
+```
+
+`init` creates the database and governance, recall, and edge sidecars. `doctor` checks the local database and, when enabled, vector services. `run` starts the stdio MCP server and waits for a client; no web page opens. Configure your MCP client with the environment's absolute Python path and the absolute script/config paths shown in [STARTER.md](docs/STARTER.md).
+
+For another system, copy the public package or clone again, create a separate database, and replace `config/starter.json` and any external provider settings. Keep credentials in environment variables. This is an owner-controlled deployment: CRM tools bind to one business, while general Brain tools can read its entire database. Use separate installations for separate trust boundaries.
 
 ## The three hard problems this solves
 
@@ -93,7 +105,7 @@ Agents don't pass markdown to each other. They write events. They read events. T
 Store raw source data, compute derived metrics on read. Stripe's MRR calculation and yours will differ — that's fine. The events are raw. A definition layer query joins over them when someone asks. You never pre-compute and store a derived number that drifts from source.
 
 **3. Pipelines that break silently.**
-Every adapter is idempotent. Re-run is a no-op. Cron is the retry loop. `health_check.py --record` writes its own probe as an event, so you can query your own uptime history from the same table.
+Adapters should use stable source identities and explicitly deduplicate retries. The canonical writer supports `--dedupe-key`; legacy writes without a key append again, and existing adapters do not all deduplicate. The vector embedder skips already indexed event IDs. `health_check.py --record` writes its own probe as an event, so you can query your uptime history from the same table.
 
 ## Design principles
 
@@ -101,16 +113,16 @@ Every adapter is idempotent. Re-run is a no-op. Cron is the retry loop. `health_
 - **One write path.** Everything writes through `record_event.py`. Everything.
 - **Scripts are pure functions.** Read, compute, write, exit. No state machines, no background workers.
 - **Cron is the orchestrator.** If a script fails, the next tick retries. No queues, no DLQs.
-- **Network boundary = auth.** Bind MCP to localhost or a tailnet IP. Don't build an auth layer you'll regret.
+- **Owner-controlled access.** Use local stdio by default. The optional HTTP/SSE template needs its own access controls; business filters are not multi-user authentication.
 - **Views are rebuildable.** Obsidian pages, wiki pages, vector DB — all derived. Delete and rebuild anytime.
 
 ## Stack
 
 | Component | Why |
 |---|---|
-| SQLite (WAL) | Fits on a USB stick. Handles 10k writes/sec. Never an operational problem at personal/SMB scale. |
-| Ollama + nomic-embed-text | Local, free, sovereign. 768-dim vectors, good enough for short factual events. |
-| Qdrant | Single Docker container, handles persistence itself. Swap for pgvector if you prefer. |
+| SQLite (WAL) | A portable event store. Back up and verify your database like any other persistent data. |
+| Ollama + nomic-embed-text | Optional semantic search. The model and dimensions are configurable. |
+| Qdrant | Optional vector index. The included scripts use the Qdrant API; another vector engine requires an adapter. |
 | MCP (Model Context Protocol) | The lingua franca for agent↔tool interfaces. Claude Code, Cursor, custom agents all speak it. |
 | Python 3.11+ | stdlib does 90% of the work. External deps: httpx, qdrant-client, mcp. |
 
@@ -124,7 +136,7 @@ The core is one `events` table. That's the contract. But once you have agents *w
 | `schemas/recall_traces.sql` | Every retrieval writes a trace; agent reports back which items it used. Surfaces dead-weight events and bad queries. | `docs/RECALL-TRACE.md` |
 | `schemas/edges.sql` | Typed reasoning edges (supports / contradicts / supersedes / depends_on) with weight, decay, and temporal validity. Powers a `questioned_decisions` view: "active decisions that have surfaced contradictions". | `docs/EDGES.md` |
 
-All three are additive and idempotent — apply à la carte. `scripts/policy_check.py` is the matching write-side filter: catches secrets, oversized payloads, and code blobs before they hit the brain.
+All three are additive and idempotent. The starter applies them in dependency order; manual installations can apply them à la carte. `scripts/policy_check.py` checks known secret patterns, oversized payloads, and code blobs before writes. It is not a complete sensitive-data scanner.
 
 ## Extending
 

@@ -43,7 +43,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333").rstrip("/")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 COLLECTION = os.environ.get("BRAIN_COLLECTION", "brain_events")
-VECTOR_SIZE = 768  # nomic-embed-text produces 768-dim vectors
+VECTOR_SIZE = int(os.environ.get("EMBED_DIMENSIONS", "768"))
 
 
 def fail(msg: str, code: int = 1) -> NoReturn:
@@ -79,6 +79,10 @@ def build_embed_text(source: str, etype: str, actor: str | None, payload: dict) 
 def ensure_collection(client: QdrantClient) -> bool:
     existing = {c.name for c in client.get_collections().collections}
     if COLLECTION in existing:
+        info = client.get_collection(COLLECTION)
+        vectors = info.config.params.vectors
+        if getattr(vectors, "size", None) != VECTOR_SIZE:
+            raise ValueError("collection dimensions differ from EMBED_DIMENSIONS; use a new collection when changing model")
         return False
     client.create_collection(
         collection_name=COLLECTION,
@@ -131,6 +135,9 @@ def main():
     p.add_argument("--verbose", action="store_true", help="log per-event status to stderr")
     p.add_argument("--force", action="store_true", help="re-embed every event, even if already present")
     args = p.parse_args()
+
+    if os.environ.get("BRAIN_VECTORS_ENABLED", "true").lower() == "false":
+        fail("vector indexing disabled in deployment config")
 
     if not DB.exists():
         fail(f"events.db not found at {DB}")

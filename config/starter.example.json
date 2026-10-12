@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "business_id": "replace-with-your-business",
+  "database": "../data/events.db",
+  "policy_mode": "strict",
+  "vectors": {
+    "enabled": false,
+    "ollama_url": "http://127.0.0.1:11434",
+    "qdrant_url": "http://127.0.0.1:6333",
+    "model": "nomic-embed-text",
+    "dimensions": 768,
+    "collection": "brain_events"
+  },
+  "crm": {
+    "provider": "event",
+    "options": {}
+  }
+}

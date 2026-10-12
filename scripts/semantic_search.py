@@ -41,7 +41,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333").rstrip("/")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 COLLECTION = os.environ.get("BRAIN_COLLECTION", "brain_events")
-VECTOR_SIZE = 768
+VECTOR_SIZE = int(os.environ.get("EMBED_DIMENSIONS", "768"))
 
 
 def fail(msg: str, code: int = 1) -> NoReturn:
@@ -105,6 +105,9 @@ def main():
         help="fetch N x limit hits from Qdrant before applying the source filter",
     )
     args = p.parse_args()
+
+    if os.environ.get("BRAIN_VECTORS_ENABLED", "true").lower() == "false":
+        fail("vector search disabled in deployment config")
 
     if not DB.exists():
         fail(f"events.db not found at {DB}")

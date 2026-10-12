@@ -12,6 +12,9 @@ Tools exposed:
 - report_usage      — close the recall-trace feedback loop (recall_traces schema)
 - propose_edge      — propose a typed reasoning edge (edges schema)
 - health_check      — probe infrastructure
+- search_events     — literal text search without a vector service
+- check_outreach / outreach_history / find_contact / log_outreach — CRM contact context
+- upsert_contact / upsert_deal / get_pipeline — event-backed CRM snapshots
 
 Wrap with mcp-proxy if you want HTTP/SSE (see systemd/brain-mcp.service).
 
@@ -22,6 +25,8 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 
 from mcp.server import FastMCP
@@ -65,7 +70,7 @@ def record_event(
         attachment_uri: optional pointer to external blob
     """
     args = [
-        "python3", str(RECORD_SCRIPT),
+        sys.executable, str(RECORD_SCRIPT),
         "--source", source,
         "--type", type,
         "--payload-stdin",
@@ -94,6 +99,10 @@ def query_events(
     order: str = "desc",
 ) -> list[dict]:
     """Filtered SQL query over events. Returns list of events."""
+    if order.lower() not in {"asc", "desc"}:
+        raise ValueError("order must be asc or desc")
+    if not 1 <= limit <= 1000:
+        raise ValueError("limit must be between 1 and 1000")
     where, params = [], []
     if source:
         where.append("source = ?")
@@ -154,8 +163,12 @@ def semantic_search(
     loop on which results you actually used. If the schema isn't there,
     trace_id is null and behavior matches the pre-trace version.
     """
+    if os.environ.get("BRAIN_VECTORS_ENABLED", "true").lower() == "false":
+        return {"status": "backend_unavailable", "error": "Vector search is disabled in deployment config", "trace_id": None, "results": []}
+    if not 1 <= limit <= 1000:
+        raise ValueError("limit must be between 1 and 1000")
     args = [
-        "python3", str(SEMANTIC_SCRIPT),
+        sys.executable, str(SEMANTIC_SCRIPT),
         "--query", query,
         "--limit", str(limit),
     ]
@@ -164,7 +177,7 @@ def semantic_search(
 
     proc = _run(args)
     if proc.returncode != 0:
-        return {"status": "error", "error": proc.stderr.strip(), "results": []}
+        return {"status": "backend_unavailable", "error": proc.stderr.strip(), "trace_id": None, "results": []}
 
     hits: list[dict] = []
     for line in proc.stdout.splitlines():
@@ -372,13 +385,103 @@ def propose_edge(
 @mcp.tool()
 def health_check() -> dict:
     """Probe Ollama, Qdrant, and events.db. Returns health report."""
-    proc = _run(["python3", str(HEALTH_SCRIPT)])
+    if os.environ.get("BRAIN_VECTORS_ENABLED", "true").lower() == "false":
+        try:
+            with closing(sqlite3.connect(f"{DB.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+                total = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+            return {"all_healthy": True, "scope": "core", "vectors_enabled": False,
+                    "semantic_search_available": False, "targets": [
+                        {"name": "brain_event_log", "healthy": True, "total_events": total},
+                        {"name": "vectors", "status": "disabled"}]}
+        except sqlite3.Error as exc:
+            return {"all_healthy": False, "scope": "core", "vectors_enabled": False, "error": str(exc)}
+    proc = _run([sys.executable, str(HEALTH_SCRIPT)])
     if proc.returncode != 0:
         return {"status": "error", "error": proc.stderr.strip()}
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
         return {"status": "error", "error": "health_check returned non-JSON output"}
+
+
+@mcp.tool()
+def search_events(query: str, source: str | None = None, type: str | None = None,
+                  limit: int = 50, offset: int = 0) -> list[dict]:
+    """Literal text search over event summaries and payloads; no vector service needed."""
+    if not query.strip() or not 1 <= limit <= 1000 or offset < 0:
+        raise ValueError("provide a query, limit 1..1000, and nonnegative offset")
+    where = ["payload_json LIKE ? ESCAPE '\\'"]
+    literal = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    params = [f"%{literal}%"]
+    for column, value in (("source", source), ("type", type)):
+        if value:
+            where.append(f"{column} = ?")
+            params.append(value)
+    params.extend([limit, offset])
+    with closing(sqlite3.connect(DB)) as conn:
+        rows = conn.execute("SELECT id, ts, source, type, actor, payload_json, attachment_uri, ingested_at FROM events WHERE " + " AND ".join(where) + " ORDER BY id DESC LIMIT ? OFFSET ?", params).fetchall()
+    return [dict(id=r[0], ts=r[1], source=r[2], type=r[3], actor=r[4], payload=json.loads(r[5]), attachment_uri=r[6], ingested_at=r[7]) for r in rows]
+
+
+@mcp.tool()
+def check_outreach(contact: str, cooldown_days: int = 7, mailbox: str | None = None,
+                   business_id: str | None = None) -> dict:
+    """Check contact policy and recent outreach before taking any outbound action."""
+    import crm
+    return crm.check_outreach(contact=contact, cooldown_days=cooldown_days, mailbox=mailbox, business_id=business_id)
+
+
+@mcp.tool()
+def outreach_history(contact: str | None = None, mailbox: str | None = None,
+                     agent: str | None = None, since: str | None = None,
+                     limit: int = 50, business_id: str | None = None) -> list[dict]:
+    """Read recorded outreach history for this deployment's business."""
+    import crm
+    return crm.outreach_history(contact=contact, mailbox=mailbox, agent=agent, since=since, limit=limit, business_id=business_id)
+
+
+@mcp.tool()
+def find_contact(query: str, limit: int = 10, business_id: str | None = None) -> list[dict]:
+    """Look up recorded contact snapshots for this deployment's business."""
+    import crm
+    return crm.find_contact(query=query, limit=limit, business_id=business_id)
+
+
+@mcp.tool()
+def log_outreach(contact: str, mailbox: str, agent: str, channel: str = "email",
+                 subject: str = "", message_id: str | None = None,
+                 thread_id: str | None = None, ts: str | None = None,
+                 direction: str = "outbound", business_id: str | None = None) -> dict:
+    """Record a reported interaction; does not send or verify provider delivery."""
+    import crm
+    return crm.log_outreach(contact=contact, mailbox=mailbox, agent=agent, channel=channel, subject=subject, message_id=message_id, thread_id=thread_id, ts=ts, direction=direction, business_id=business_id)
+
+
+@mcp.tool()
+def upsert_contact(contact_id: str, email: str | None = None, phone: str | None = None,
+                   display_name: str | None = None, kind: str = "contact",
+                   contact_policy: str = "unknown", business_id: str | None = None,
+                   observed_at: str | None = None, valid_until: str | None = None) -> dict:
+    """Append a contact snapshot; contact policy defaults to unknown."""
+    import crm
+    return crm.upsert_contact(contact_id=contact_id, email=email, phone=phone, display_name=display_name, kind=kind, contact_policy=contact_policy, business_id=business_id, observed_at=observed_at, valid_until=valid_until)
+
+
+@mcp.tool()
+def upsert_deal(deal_id: str, contact_id: str, title: str, stage: str = "open",
+                owner: str | None = None, next_action: str | None = None,
+                value_cents: int | None = None, currency: str | None = None,
+                business_id: str | None = None) -> dict:
+    """Append a deal snapshot; external CRM provider is not mutated."""
+    import crm
+    return crm.upsert_deal(deal_id=deal_id, contact_id=contact_id, title=title, stage=stage, owner=owner, next_action=next_action, value_cents=value_cents, currency=currency, business_id=business_id)
+
+
+@mcp.tool()
+def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
+    """Read current deal snapshots for this business."""
+    import crm
+    return crm.get_pipeline(limit=limit, business_id=business_id)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 events.db
 events.db-wal
 events.db-shm
+data/
 
 # Python
 __pycache__/
@@ -14,6 +15,8 @@ venv/
 # Local config (keep .example templates, ignore real configs with tokens/paths)
 config/*.json
 !config/*.json.example
+!config/starter.example.json
+!config/starter.schema.json
 
 # OAuth tokens
 *credentials*.json
