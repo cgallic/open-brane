@@ -1,6 +1,10 @@
 {
   "version": 1,
   "business_id": "replace-with-your-business",
+  "owner_id": "customer-owner-1",
+  "public_origin": "http://127.0.0.1",
+  "storage": {"root": "../data", "auth_db": "../data/auth.db", "artifact_root": "../data/artifacts", "vector_namespace": "brain_customer_owner_1"},
+  "auth": {"enabled": true, "read_only_default": false},
   "database": "../data/events.db",
   "policy_mode": "strict",
   "vectors": {

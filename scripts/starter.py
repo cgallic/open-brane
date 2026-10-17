@@ -28,6 +28,11 @@ def main() -> int:
             with closing(sqlite3.connect(db)) as conn:
                 for name in ("SCHEMA.sql", "schemas/governance.sql", "schemas/recall_traces.sql", "schemas/edges.sql"):
                     conn.executescript((ROOT / name).read_text(encoding="utf-8"))
+            auth_db = Path(os.environ["BRAIN_AUTH_DB"])
+            auth_db.parent.mkdir(parents=True, exist_ok=True)
+            with closing(sqlite3.connect(auth_db)) as auth_conn:
+                auth_conn.executescript((ROOT / "schemas/customer.sql").read_text(encoding="utf-8"))
+            Path(os.environ["BRAIN_ARTIFACT_ROOT"]).mkdir(parents=True, exist_ok=True)
             print(json.dumps({"status": "ok", "database": str(db), "business_id": config["business_id"], "vectors_enabled": config.get("vectors", {}).get("enabled", False)}))
             return 0
         if not db.exists():

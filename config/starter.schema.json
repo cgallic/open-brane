@@ -7,7 +7,11 @@
   "properties": {
     "version": {"const": 1},
     "business_id": {"type": "string", "minLength": 1},
+    "owner_id": {"type": "string", "minLength": 1},
+    "public_origin": {"type": "string", "format": "uri"},
     "database": {"type": "string", "minLength": 1, "description": "Resolved relative to this configuration file."},
+    "storage": {"type": "object", "additionalProperties": false, "properties": {"root": {"type": "string", "minLength": 1}, "auth_db": {"type": "string", "minLength": 1}, "artifact_root": {"type": "string", "minLength": 1}, "vector_namespace": {"type": "string", "minLength": 1}}},
+    "auth": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "read_only_default": {"type": "boolean"}}},
     "policy_mode": {"enum": ["strict", "sanitize"], "default": "strict"},
     "vectors": {
       "type": "object", "additionalProperties": false,

@@ -30,6 +30,8 @@ from contextlib import closing
 from pathlib import Path
 
 from mcp.server import FastMCP
+import customer_runtime as customer
+import artifacts
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BRAIN_ROOT = Path(os.environ.get("BRAIN_ROOT", SCRIPT_DIR.parent))
@@ -58,6 +60,7 @@ def record_event(
     actor: str | None = None,
     ts: str | None = None,
     attachment_uri: str | None = None,
+    connection_id: str | None = None,
 ) -> dict:
     """Append one event to the event log. The canonical write path.
 
@@ -69,6 +72,9 @@ def record_event(
         ts: optional ISO 8601 UTC (default: now)
         attachment_uri: optional pointer to external blob
     """
+    auth = customer._connection(connection_id, write=True) if connection_id else None
+    if auth:
+        payload = {**payload, "_server": {"owner_id": auth["owner_id"], "connection_id": auth["connection_id"]}}
     args = [
         sys.executable, str(RECORD_SCRIPT),
         "--source", source,
@@ -482,6 +488,70 @@ def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
     """Read current deal snapshots for this business."""
     import crm
     return crm.get_pipeline(limit=limit, business_id=business_id)
+
+
+@mcp.tool()
+def create_connection(provider: str, label: str, scopes: list[str] | None = None,
+                      read_only: bool | None = None) -> dict:
+    """Create a server-stamped customer connection; no provider credential is stored."""
+    return customer.create_connection(provider, label, scopes, read_only)
+
+
+@mcp.tool()
+def revoke_connection(connection_id: str) -> dict:
+    """Revoke one customer connection and all future operations using it."""
+    return customer.revoke_connection(connection_id)
+
+
+@mcp.tool()
+def save_project_checkpoint(project_id: str, payload: dict, connection_id: str) -> dict:
+    """Save scoped project context/checkpoint with authenticated connection provenance."""
+    return customer.save_checkpoint(project_id, payload, connection_id)
+
+
+@mcp.tool()
+def resume_project_checkpoint(project_id: str, connection_id: str) -> dict:
+    """Resume a project checkpoint from another authorized customer connection."""
+    return customer.resume_checkpoint(project_id, connection_id)
+
+
+@mcp.tool()
+def create_artifact(slug: str, content: str, connection_id: str, format: str = "markdown",
+                    provenance: dict | None = None) -> dict:
+    """Create a UTF-8 artifact in the customer root with immutable revision 1."""
+    return artifacts.create(slug, content, connection_id, format, provenance)
+
+
+@mcp.tool()
+def read_artifact(artifact_id: str, connection_id: str) -> dict:
+    """Read the current customer-scoped artifact revision."""
+    return artifacts.read(artifact_id, connection_id)
+
+
+@mcp.tool()
+def edit_artifact(artifact_id: str, content: str, expected_revision: int,
+                  connection_id: str, provenance: dict | None = None) -> dict:
+    """CAS edit: stale expected revisions fail without changing the artifact."""
+    return artifacts.edit(artifact_id, content, expected_revision, connection_id, provenance)
+
+
+@mcp.tool()
+def artifact_history(artifact_id: str, connection_id: str) -> list[dict]:
+    """List immutable artifact revisions and provenance."""
+    return artifacts.history(artifact_id, connection_id)
+
+
+@mcp.tool()
+def restore_artifact(artifact_id: str, revision: int, expected_revision: int,
+                     connection_id: str) -> dict:
+    """Restore a prior revision by creating a new revision, never rewriting history."""
+    return artifacts.restore(artifact_id, revision, expected_revision, connection_id)
+
+
+@mcp.tool()
+def export_artifact(artifact_id: str, connection_id: str) -> dict:
+    """Export the current artifact bytes and revision metadata."""
+    return artifacts.export(artifact_id, connection_id)
 
 
 if __name__ == "__main__":

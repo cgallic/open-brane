@@ -66,6 +66,32 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     history = output(await session.call_tool("outreach_history", {"contact": "person@example.test"}))
                     self.assertEqual(history[0]["message_id"], "test-receipt")
 
+    async def test_customer_mcp_runtime_isolated_connections_and_artifacts(self):
+        with tempfile.TemporaryDirectory() as root:
+            sessions = []
+            for name in ("mcp-one", "mcp-two"):
+                folder = Path(root) / name; folder.mkdir()
+                cfg = {"version": 1, "business_id": name, "owner_id": name + "-owner", "public_origin": "https://" + name + ".example.test", "database": "events.db", "storage": {"root": "data", "auth_db": "data/auth.db", "artifact_root": "data/artifacts", "vector_namespace": "vector-" + name}, "vectors": {"enabled": False}, "crm": {"provider": "event", "options": {}}}
+                path = folder / "starter.json"; path.write_text(json.dumps(cfg), encoding="utf-8")
+                init = subprocess.run([sys.executable, str(ROOT / "scripts/starter.py"), "init", "--config", str(path)], capture_output=True, text=True)
+                self.assertEqual(init.returncode, 0, init.stderr)
+                server = StdioServerParameters(command=sys.executable, args=[str(ROOT / "scripts/starter.py"), "run", "--config", str(path)], env=dict(os.environ))
+                sessions.append(stdio_client(server))
+            async with sessions[0] as (r1, w1), sessions[1] as (r2, w2):
+                async with ClientSession(r1, w1) as one, ClientSession(r2, w2) as two:
+                    await one.initialize(); await two.initialize()
+                    c1 = output(await one.call_tool("create_connection", {"provider": "claude", "label": "A"}))
+                    c2 = output(await two.call_tool("create_connection", {"provider": "chatgpt", "label": "B"}))
+                    self.assertNotEqual(c1["connection_id"], c2["connection_id"])
+                    await one.call_tool("save_project_checkpoint", {"project_id": "p", "payload": {"goal": "cross-account"}, "connection_id": c1["connection_id"]})
+                    self.assertEqual(output(await one.call_tool("resume_project_checkpoint", {"project_id": "p", "connection_id": c1["connection_id"]}))["payload"]["goal"], "cross-account")
+                    body = "é" * 11000
+                    created = output(await one.call_tool("create_artifact", {"slug": "mcp-brief", "content": body, "connection_id": c1["connection_id"]}))
+                    read = output(await one.call_tool("read_artifact", {"artifact_id": created["artifact_id"], "connection_id": c1["connection_id"]}))
+                    self.assertEqual(read["byte_length"], len(body.encode()))
+                    foreign = await two.call_tool("read_artifact", {"artifact_id": created["artifact_id"], "connection_id": c2["connection_id"]})
+                    self.assertTrue(foreign.isError)
+
 
 if __name__ == "__main__":
     unittest.main()
