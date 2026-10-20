@@ -16,7 +16,7 @@ Tools exposed:
 - check_outreach / outreach_history / find_contact / log_outreach — CRM contact context
 - upsert_contact / upsert_deal / get_pipeline — event-backed CRM snapshots
 
-Wrap with mcp-proxy if you want HTTP/SSE (see systemd/brain-mcp.service).
+Use brane.py serve for authenticated Streamable HTTP and the browser UI.
 
 Dependencies:
     pip install mcp httpx qdrant-client

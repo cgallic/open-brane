@@ -1,0 +1,146 @@
+"""Exercise setup, real HTTP authentication, MCP, and restart persistence."""
+import asyncio
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from brane import initialize
+
+
+class SelfHostingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='brane self host ')
+        self.addCleanup(self.temp.cleanup)
+        self.config = Path(self.temp.name) / 'starter.json'
+        self.invoke('setup')
+        self.token_path = self.config.parent / 'http-token'
+        self.token = self.token_path.read_text().strip()
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            self.port = sock.getsockname()[1]
+        self.url = f'http://127.0.0.1:{self.port}'
+        self.process = None
+        self.addCleanup(self.stop)
+
+    def invoke(self, command):
+        proc = subprocess.run([sys.executable, str(ROOT / 'brane.py'), command,
+                               '--skip-install', '--config', str(self.config)], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc
+
+    def start(self):
+        self.log = tempfile.TemporaryFile(mode='w+')
+        self.addCleanup(self.log.close)
+        env = dict(os.environ)
+        env.pop('BRAIN_HTTP_TOKEN', None)
+        self.process = subprocess.Popen([sys.executable, str(ROOT / 'scripts/http_server.py'),
+                                         '--config', str(self.config), '--port', str(self.port)],
+                                        stdout=self.log, stderr=self.log, env=env)
+        for _ in range(100):
+            if self.process.poll() is not None:
+                self.log.seek(0)
+                self.fail(self.log.read())
+            try:
+                with urlopen(self.url + '/healthz', timeout=.2) as response:
+                    self.assertEqual(json.load(response), {'status': 'ok'})
+                return
+            except (URLError, TimeoutError):
+                time.sleep(.05)
+        self.fail('HTTP server did not become ready')
+
+    def stop(self):
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            self.process.wait(timeout=10)
+
+    def request(self, path, body=None, token=None, headers=None):
+        headers = dict(headers or {})
+        if token:
+            headers['Authorization'] = 'Bearer ' + token
+        if body is not None:
+            body = json.dumps(body).encode()
+            headers['Content-Type'] = 'application/json'
+        return urlopen(Request(self.url + path, data=body, headers=headers), timeout=5)
+
+    def test_setup_preserves_identity_credentials_and_notes_across_restart(self):
+        original = self.config.read_bytes()
+        if os.name != 'nt':
+            self.assertEqual(self.token_path.stat().st_mode & 0o777, 0o600)
+        self.start()
+        with self.request('/api/events', {'summary': 'Remember 100% of this'}, self.token) as response:
+            self.assertEqual(response.status, 201)
+            event = json.load(response)
+        self.stop()
+        self.invoke('setup')
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(self.token_path.read_text().strip(), self.token)
+        self.start()
+        with self.request('/api/events?q=100%25', token=self.token) as response:
+            rows = json.load(response)
+            self.assertEqual(rows[0]['id'], event['event_id'])
+        self.assertEqual(json.loads(self.invoke('doctor').stdout)['status'], 'ok')
+        mcp = json.loads(self.invoke('mcp-config').stdout)['mcpServers']['open-brane']
+        self.assertEqual(mcp['command'], sys.executable)
+        self.assertEqual(mcp['args'][-1], str(self.config))
+
+    def test_authentication_input_policy_and_host_validation(self):
+        self.start()
+        for path in ('/api/events', '/mcp', '/mcp/'):
+            for token in (None, 'wrong'):
+                with self.subTest(path=path, token=token), self.assertRaises(HTTPError) as error:
+                    self.request(path, token=token)
+                self.assertEqual(error.exception.code, 401)
+        with self.request('/') as response:
+            html = response.read().decode()
+            self.assertIn('Unlock your brain', html)
+            self.assertNotIn(self.token, html)
+        for body in ({'summary': ' '}, [], {'summary': 4}, {'summary': 'sk-' + 'X' * 80}):
+            with self.subTest(body=body):
+                with self.assertRaises(HTTPError) as error:
+                    self.request('/api/events', body=body, token=self.token)
+                self.assertEqual(error.exception.code, 400)
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/events', body={'summary': 'a' * 300000}, token=self.token)
+        self.assertEqual(error.exception.code, 413)
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/events', token=self.token, headers={'Host': 'attacker.example'})
+        self.assertEqual(error.exception.code, 400)
+
+    def test_real_http_mcp_shares_browser_database(self):
+        self.start()
+
+        async def run():
+            import httpx
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+            async with httpx.AsyncClient(headers={'Authorization': 'Bearer ' + self.token}, trust_env=False) as client:
+                async with streamable_http_client(self.url + '/mcp', http_client=client) as (reader, writer, _):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        names = {tool.name for tool in (await session.list_tools()).tools}
+                        self.assertIn('record_event', names)
+                        result = await session.call_tool('record_event', {'source': 'test', 'type': 'note', 'payload': {'summary': 'HTTP MCP memory'}})
+                        self.assertFalse(result.isError, result)
+        asyncio.run(run())
+        with self.request('/api/events?q=HTTP', token=self.token) as response:
+            self.assertEqual(json.load(response)[0]['payload']['summary'], 'HTTP MCP memory')
+
+    def test_server_refuses_missing_or_weak_credentials(self):
+        self.token_path.write_text('weak')
+        proc = subprocess.run([sys.executable, str(ROOT / 'scripts/http_server.py'), '--config', str(self.config)], capture_output=True, text=True, env={**os.environ, 'BRAIN_HTTP_TOKEN': ''})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('at least 32', proc.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -14,8 +14,10 @@ from runtime_config import ROOT, apply_config
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "init", "run", "doctor", "embed"))
+    parser.add_argument("command", choices=("validate", "init", "run", "doctor", "embed", "serve"))
     parser.add_argument("--config", required=True)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7778)
     args = parser.parse_args()
     try:
         config = apply_config(args.config)
@@ -37,6 +39,10 @@ def main() -> int:
             return 0
         if not db.exists():
             raise ValueError("database missing; run starter.py init first")
+        if args.command == "serve":
+            os.execv(sys.executable, [sys.executable, str(ROOT / "scripts/http_server.py"),
+                                     "--config", str(Path(args.config).resolve()),
+                                     "--host", args.host, "--port", str(args.port)])
         if args.command == "run":
             return subprocess.call([sys.executable, str(ROOT / "scripts/mcp_server.py")])
         if args.command == "embed":

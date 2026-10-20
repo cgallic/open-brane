@@ -1,0 +1,31 @@
+name: Test self-hosting
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f compose.json up --build -d --wait
+      - name: Smoke test persisted note and authentication
+        shell: bash
+        run: |
+          token=$(docker compose -f compose.json exec -T brane cat /data/http-token)
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7778/api/events)" = 401
+          curl --fail -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"summary":"Docker persistence smoke test"}' http://127.0.0.1:7778/api/events
+          docker compose -f compose.json down
+          docker compose -f compose.json up -d --wait
+          curl --fail -H "Authorization: Bearer $token" 'http://127.0.0.1:7778/api/events?q=persistence' | python -c 'import json,sys; assert len(json.load(sys.stdin)) == 1'
+      - if: always()
+        run: docker compose -f compose.json logs

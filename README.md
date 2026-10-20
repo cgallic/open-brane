@@ -61,40 +61,49 @@ open-brane/
 
 ## Quickstart
 
-Python 3.11+ is required. The default configuration runs the event store and CRM tools without Ollama or Qdrant.
-
-Clone and create an environment:
+**Python 3.11+ and Git are the only prerequisites.** No model, API key, Ollama, or Qdrant is needed for notes, text search, CRM, or MCP.
 
 ```bash
 git clone https://github.com/cgallic/open-brane.git
 cd open-brane
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp config/starter.example.json config/starter.json
+python3 brane.py setup
+python3 brane.py serve
 ```
 
-On Windows PowerShell, use these environment commands after cloning:
+Open **http://127.0.0.1:7778**, paste the token from `data/http-token`, and start saving and searching notes. Setup creates the virtual environment, installs the core dependencies, generates a private access token, and initializes your database. Running setup again preserves your configuration, token, and events.
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item config/starter.example.json config/starter.json
+On Windows, replace `python3` with `py -3.11`. No environment activation is required.
+
+### Docker
+
+Only Docker with Compose is required:
+
+```bash
+git clone https://github.com/cgallic/open-brane.git
+cd open-brane
+docker compose -f compose.json up --build -d --wait
+docker compose -f compose.json exec brane cat /data/http-token
 ```
 
-Replace `business_id` in `config/starter.json` with your business identifier. The example database path resolves to `data/events.db` inside this copy. Then run, on either platform:
+Open **http://127.0.0.1:7778** and paste that token. The container runs as a non-root user; its named volume preserves your database, credentials, checkpoints, and artifacts. Only localhost is published by default. JSON is used for the Compose configuration.
 
-```text
-python scripts/starter.py validate --config config/starter.json
-python scripts/starter.py init --config config/starter.json
-python scripts/starter.py doctor --config config/starter.json
-python scripts/starter.py run --config config/starter.json
+### Connect an agent
+
+For a local stdio MCP client, generate ready-to-paste configuration with absolute paths:
+
+```bash
+python3 brane.py mcp-config
 ```
 
-`init` creates the database and governance, recall, and edge sidecars. `doctor` checks the local database and, when enabled, vector services. `run` starts the stdio MCP server and waits for a client; no web page opens. Configure your MCP client with the environment's absolute Python path and the absolute script/config paths shown in [STARTER.md](docs/STARTER.md).
+For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
 
-For another system, copy the public package or clone again, create a separate database, and replace `config/starter.json` and any external provider settings. Keep credentials in environment variables. This is an owner-controlled deployment: CRM tools bind to one business, while general Brain tools can read its entire database. Use separate installations for separate trust boundaries.
+Check your installation:
+
+```bash
+python3 brane.py doctor
+```
+
+See **[Self-hosting](docs/SELF-HOSTING.md)** for a VPS, HTTPS, backups, upgrades, token rotation, troubleshooting, and optional semantic search. The existing [starter guide](docs/STARTER.md) covers advanced configuration and provider contracts; existing `starter.py` commands remain supported.
 
 ## The three hard problems this solves
 
@@ -113,7 +122,7 @@ Adapters should use stable source identities and explicitly deduplicate retries.
 - **One write path.** Everything writes through `record_event.py`. Everything.
 - **Scripts are pure functions.** Read, compute, write, exit. No state machines, no background workers.
 - **Cron is the orchestrator.** If a script fails, the next tick retries. No queues, no DLQs.
-- **Owner-controlled access.** Use local stdio by default. The optional HTTP/SSE template needs its own access controls; business filters are not multi-user authentication.
+- **Owner-controlled access.** Use local stdio by default. The included HTTP server requires an owner Bearer token; business filters are not multi-user authentication.
 - **Views are rebuildable.** Obsidian pages, wiki pages, vector DB — all derived. Delete and rebuild anytime.
 
 ## Stack
