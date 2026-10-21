@@ -1,12 +1,14 @@
 # Open Brane
 
-**Shared customer history for your AI workflows.**
+**Your projects, research, and decisions, available to every connected agent.**
 
-Let your phone, follow-up, and service workflows read the same recorded customer interactions. Before a proactive follow-up, inspect the latest contact facts, reply ownership, stale policy, and reasons to pause. Keep the source event IDs and document revisions available when something goes wrong.
+Open Brane is a self-hosted event-log brain for keeping work across sessions and tools. Save notes, resume project checkpoints, open versioned documents, and find what happened without rebuilding context from scratch. Your browser opens to saved work and recent activity; customer follow-up tools are optional.
 
-Open Brane is a self-hosted SQLite event store with a browser Customer desk, authenticated HTTP endpoints, and MCP tools. Core recording and text search need no LLM or vector database. Contact checks are advisory: Open Brane does not send messages or verify provider delivery.
+One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Core recording and text search need no LLM or vector database. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
 
-**See it work:** after [setup](#quickstart), run `python3 brane.py demo`. Two scripted MCP clients share a call summary, detect recent outreach and stale contact facts, and reject a stale document edit. The demo uses temporary synthetic data and sends nothing. See the [customer handoff guide](docs/CUSTOMER-HANDOFF.md) for the runnable HTTP integration and its limits.
+**For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. See [Your workspace](docs/WORKSPACE.md) for the read-only dashboard and its limits.
+
+**Customer workflow example:** after [setup](#quickstart), run `python3 brane.py demo`. Two scripted MCP clients share a call summary, check recent outreach and stale contact facts, and reject a stale document edit. This optional demo uses temporary synthetic data and sends nothing. See the [customer handoff guide](docs/CUSTOMER-HANDOFF.md).
 
 ## Quickstart
 
@@ -44,7 +46,7 @@ For a local stdio MCP client, generate ready-to-paste configuration with absolut
 python3 brane.py mcp-config
 ```
 
-The browser includes a **Customer desk** to look up contact facts, interaction history, and follow-up checks. Connect your existing workflow through the [authenticated customer API](docs/CUSTOMER-HANDOFF.md).
+The browser also includes optional **Customer follow-up tools** to look up contact facts, interaction history, and follow-up checks. Connect your existing workflow through the [authenticated customer API](docs/CUSTOMER-HANDOFF.md).
 
 For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
 

@@ -503,6 +503,30 @@ def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def workspace_overview(limit: int = 20, since: str | None = None) -> dict:
+    """Find saved projects, documents, and recently recorded activity in this owner deployment.
+
+    Next actions are only those explicitly saved in checkpoint payloads; no progress is inferred.
+    """
+    import workspace
+    return workspace.overview(limit, since)
+
+
+@mcp.tool()
+def read_saved_project(project_id: str) -> dict:
+    """Read a saved project checkpoint by an ID returned by workspace_overview."""
+    import workspace
+    return workspace.read_project(project_id)
+
+
+@mcp.tool()
+def read_saved_document(artifact_id: str) -> dict:
+    """Read and integrity-check a saved document from this owner deployment."""
+    import workspace
+    return workspace.read_document(artifact_id)
+
+
+@mcp.tool()
 def create_connection(provider: str, label: str, scopes: list[str] | None = None,
                       read_only: bool | None = None) -> dict:
     """Create a server-stamped customer connection; no provider credential is stored."""

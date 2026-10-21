@@ -95,6 +95,30 @@ def create_app(config_path):
         except sqlite3.Error:
             return JSONResponse({'error': 'Customer store unavailable'}, status_code=503)
 
+    async def saved_workspace(request):
+        import workspace
+        try:
+            if request.url.path == '/api/workspace/project':
+                if set(request.query_params) - {'project_id'}:
+                    raise ValueError('Unsupported query parameter')
+                result = await run_in_threadpool(workspace.read_project, request.query_params.get('project_id', ''))
+            elif request.url.path == '/api/workspace/document':
+                if set(request.query_params) - {'artifact_id'}:
+                    raise ValueError('Unsupported query parameter')
+                result = await run_in_threadpool(workspace.read_document, request.query_params.get('artifact_id', ''))
+            else:
+                if set(request.query_params) - {'limit', 'since'}:
+                    raise ValueError('Unsupported query parameter')
+                result = await run_in_threadpool(workspace.overview,
+                    limit=int(request.query_params.get('limit', '20')), since=request.query_params.get('since'))
+            return JSONResponse(result)
+        except FileNotFoundError:
+            return JSONResponse({'error': 'Saved work not found'}, status_code=404)
+        except (ValueError, TypeError):
+            return JSONResponse({'error': 'Invalid workspace request or saved document integrity failure'}, status_code=400)
+        except (OSError, sqlite3.Error):
+            return JSONResponse({'error': 'Workspace store unavailable'}, status_code=503)
+
     # Outer Host validation covers UI, REST, and MCP. A configured public origin
     # permits a reverse-proxy domain without accepting arbitrary Host headers.
     public = urlparse(config.get('public_origin', 'http://127.0.0.1'))
@@ -108,7 +132,10 @@ def create_app(config_path):
     app.router.routes.extend([Route('/', home), Route('/healthz', live), Route('/api/events', events, methods=['GET', 'POST']),
         Route('/api/contacts', customer_workflow, methods=['POST']),
         Route('/api/interactions', customer_workflow, methods=['POST']),
-        Route('/api/customer-context', customer_workflow)])
+        Route('/api/customer-context', customer_workflow),
+        Route('/api/workspace', saved_workspace),
+        Route('/api/workspace/project', saved_workspace),
+        Route('/api/workspace/document', saved_workspace)])
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
 
     class OwnerAuth:

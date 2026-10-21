@@ -226,6 +226,54 @@ class SelfHostingTests(unittest.TestCase):
         self.assertTrue(result['stale_document_edit_rejected'])
         self.assertEqual(result['messages_sent'], 0)
 
+    def test_owner_workspace_reads_real_saved_projects_and_documents(self):
+        self.start()
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/workspace')
+        self.assertEqual(error.exception.code, 401)
+        async def save_and_list():
+            import httpx
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+            def unpack(result):
+                self.assertFalse(result.isError)
+                data = result.structuredContent
+                if data is None:
+                    data = json.loads(next(block.text for block in result.content if block.type == 'text'))
+                return data.get('result', data)
+            async with httpx.AsyncClient(headers={'Authorization': 'Bearer ' + self.token}, trust_env=False) as client:
+                async with streamable_http_client(self.url + '/mcp', http_client=client) as (reader, writer, _):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        connection = unpack(await session.call_tool('create_connection', {'provider': 'test', 'label': 'Research client'}))
+                        await session.call_tool('save_project_checkpoint', {'project_id': 'research-project',
+                            'payload': {'goal': 'Review source evidence', 'next_action': 'Read paper two'}, 'connection_id': connection['connection_id']})
+                        doc = unpack(await session.call_tool('create_artifact', {'slug': 'research-notes',
+                            'content': 'Saved findings <script>never render as HTML</script>', 'connection_id': connection['connection_id']}))
+                        overview = unpack(await session.call_tool('workspace_overview', {}))
+                        self.assertEqual(overview['projects'][0]['next_action'], 'Read paper two')
+                        project = unpack(await session.call_tool('read_saved_project', {'project_id': 'research-project'}))
+                        self.assertEqual(project['payload']['goal'], 'Review source evidence')
+                        read = unpack(await session.call_tool('read_saved_document', {'artifact_id': doc['artifact_id']}))
+                        self.assertEqual(read['content'], doc['content'])
+                        return doc
+        doc = asyncio.run(save_and_list())
+        self.stop(); self.start()
+        with self.request('/api/workspace', token=self.token) as response:
+            overview = json.load(response)
+        self.assertEqual(overview['projects'][0]['project_id'], 'research-project')
+        self.assertEqual(overview['documents'][0]['artifact_id'], doc['artifact_id'])
+        with self.request('/api/workspace/project?project_id=research-project', token=self.token) as response:
+            self.assertEqual(json.load(response)['payload']['next_action'], 'Read paper two')
+        with self.request('/api/workspace/document?artifact_id=' + doc['artifact_id'], token=self.token) as response:
+            self.assertEqual(json.load(response)['content'], doc['content'])
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/workspace/project?project_id=missing', token=self.token)
+        self.assertEqual(error.exception.code, 404)
+        with self.request('/') as response:
+            html = response.read().decode()
+            self.assertLess(html.index('Pick up where you left off'), html.index('Customer follow-up tools'))
+
 
 if __name__ == '__main__':
     unittest.main()
