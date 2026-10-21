@@ -1,7 +1,6 @@
-# Core (required)
-httpx>=0.27
+# Core plus optional vector-search client (backward-compatible full install)
+-r requirements-core.txt
 qdrant-client>=1.11
-mcp>=1.26,<2
 
 # Optional — install only if using the Google Drive adapter
 # pdfplumber>=0.11

@@ -1,0 +1,3 @@
+# Local event store, CRM, browser UI and authenticated HTTP/stdio MCP.
+httpx>=0.27
+mcp>=1.26,<2

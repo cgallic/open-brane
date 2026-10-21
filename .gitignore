@@ -41,3 +41,8 @@ journal/
 # OS
 .DS_Store
 Thumbs.db
+
+# HTTP deployment secrets
+.env
+.env.*
+http-token
