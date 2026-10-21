@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -37,6 +39,12 @@ class WorkspaceTests(unittest.TestCase):
                 c.execute('INSERT INTO checkpoints VALUES (?,?,?,?,?)', (owner + '-project', owner,
                     json.dumps({'goal': owner + ' research', 'next_action': 'Read the source'}), 'fixture', '2026-01-01T00:00:00+00:00'))
             c.commit()
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is needed for the browser script check')
+    def test_browser_conflict_preserves_draft_and_lock_clears_it(self):
+        result = subprocess.run(['node', str(ROOT / 'tests/test_workspace_ui.cjs')], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('conflict preserves draft', result.stdout)
 
     def test_missing_optional_store_is_not_created_and_since_uses_recording_time(self):
         append_event(source='research', event_type='note', payload={'summary': 'Imported older research'}, ts='2020-01-01T00:00:00Z')

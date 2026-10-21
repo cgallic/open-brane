@@ -103,9 +103,10 @@ def create_app(config_path):
                     raise ValueError('Unsupported query parameter')
                 result = await run_in_threadpool(workspace.read_project, request.query_params.get('project_id', ''))
             elif request.url.path == '/api/workspace/document':
-                if set(request.query_params) - {'artifact_id'}:
+                if set(request.query_params) - {'artifact_id', 'revision'}:
                     raise ValueError('Unsupported query parameter')
-                result = await run_in_threadpool(workspace.read_document, request.query_params.get('artifact_id', ''))
+                result = await run_in_threadpool(workspace.read_document, request.query_params.get('artifact_id', ''),
+                    int(request.query_params['revision']) if 'revision' in request.query_params else None)
             else:
                 if set(request.query_params) - {'limit', 'since'}:
                     raise ValueError('Unsupported query parameter')
@@ -116,6 +117,47 @@ def create_app(config_path):
             return JSONResponse({'error': 'Saved work not found'}, status_code=404)
         except (ValueError, TypeError):
             return JSONResponse({'error': 'Invalid workspace request or saved document integrity failure'}, status_code=400)
+        except (OSError, sqlite3.Error):
+            return JSONResponse({'error': 'Workspace store unavailable'}, status_code=503)
+
+    def browser_connection():
+        import customer_runtime as customer
+        from contextlib import closing
+        customer.ensure_schema()
+        with closing(sqlite3.connect(customer.AUTH_DB)) as conn:
+            rows = conn.execute("SELECT connection_id,scopes_json FROM connections WHERE owner_id=? AND provider='workspace-browser' AND read_only=0 AND revoked_at IS NULL", (customer.OWNER,)).fetchall()
+        cid = next((r[0] for r in rows if 'brain:write' in json.loads(r[1])), None)
+        return cid or customer.create_connection('workspace-browser', 'Owner browser', read_only=False)['connection_id']
+
+    async def work_session(request):
+        import workspace
+        try:
+            if request.method in {'GET', 'HEAD'}:
+                if set(request.query_params) - {'project_id'}:
+                    raise ValueError('Unsupported query parameter')
+                return JSONResponse(await run_in_threadpool(workspace.resume_session, request.query_params.get('project_id', '')))
+            raw = bytearray()
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 262144:
+                    return JSONResponse({'error': 'Request exceeds 256 KiB'}, status_code=413)
+            body = json.loads(raw)
+            allowed = {'project_id', 'summary', 'next_action', 'expected_revision', 'decisions', 'blockers', 'event_ids', 'artifact_ids'}
+            if not isinstance(body, dict) or set(body) - allowed:
+                raise ValueError('Unsupported session fields')
+            # The owner token grants write access. This ID records browser provenance,
+            # not separate user authentication; create it only on an explicit write.
+            cid = await run_in_threadpool(browser_connection)
+            result = await run_in_threadpool(workspace.save_session, **body, connection_id=cid)
+            return JSONResponse(result, status_code=201)
+        except RuntimeError:
+            return JSONResponse({'error': 'Saved context changed. Your draft has been kept. Copy it, reopen the latest project, then reconcile before saving.'}, status_code=409)
+        except FileNotFoundError:
+            return JSONResponse({'error': 'Referenced saved work not found'}, status_code=404)
+        except PermissionError:
+            return JSONResponse({'error': 'Connection or project is not writable'}, status_code=403)
+        except (ValueError, TypeError):
+            return JSONResponse({'error': 'Invalid session fields or source references'}, status_code=400)
         except (OSError, sqlite3.Error):
             return JSONResponse({'error': 'Workspace store unavailable'}, status_code=503)
 
@@ -134,6 +176,7 @@ def create_app(config_path):
         Route('/api/interactions', customer_workflow, methods=['POST']),
         Route('/api/customer-context', customer_workflow),
         Route('/api/workspace', saved_workspace),
+        Route('/api/workspace/session', work_session, methods=['GET', 'POST']),
         Route('/api/workspace/project', saved_workspace),
         Route('/api/workspace/document', saved_workspace)])
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)

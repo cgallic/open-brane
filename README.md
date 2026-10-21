@@ -6,7 +6,7 @@ Open Brane is a self-hosted event-log brain for keeping work across sessions and
 
 One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Core recording and text search need no LLM or vector database. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
 
-**For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. See [Your workspace](docs/WORKSPACE.md) for the read-only dashboard and its limits.
+**For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. Save session decisions, blockers, sources, and a next action in the browser or through `save_work_session`; `resume_work_session` brings that context back. Revision history and stale-save protection help keep overlapping sessions from losing work. See [Your workspace](docs/WORKSPACE.md) for the workflow and its limits.
 
 **Customer workflow example:** after [setup](#quickstart), run `python3 brane.py demo`. Two scripted MCP clients share a call summary, check recent outreach and stale contact facts, and reject a stale document edit. This optional demo uses temporary synthetic data and sends nothing. See the [customer handoff guide](docs/CUSTOMER-HANDOFF.md).
 

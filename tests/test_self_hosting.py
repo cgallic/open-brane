@@ -226,6 +226,49 @@ class SelfHostingTests(unittest.TestCase):
         self.assertTrue(result['stale_document_edit_rejected'])
         self.assertEqual(result['messages_sent'], 0)
 
+    def test_browser_session_conflict_and_restart_handoff_to_mcp(self):
+        self.start()
+        for path in ('/api/workspace/session', '/api/workspace/session?project_id=work'):
+            with self.assertRaises(HTTPError) as error:
+                self.request(path)
+            self.assertEqual(error.exception.code, 401)
+        with self.request('/api/events', {'summary': 'Evidence for the saved decision'}, self.token) as response:
+            event_id = json.load(response)['event_id']
+        draft = {'project_id': 'work', 'summary': 'Reviewed evidence', 'next_action': 'Write the proposal',
+                 'expected_revision': 0, 'decisions': ['Use the source'], 'blockers': ['Need review'], 'event_ids': [event_id]}
+        with self.request('/api/workspace/session', draft, self.token) as response:
+            self.assertEqual(json.load(response)['revision'], 1)
+        draft['summary'] = 'Stale draft must not replace context'
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/workspace/session', draft, self.token)
+        self.assertEqual(error.exception.code, 409)
+        self.stop(); self.start()
+        async def resume_and_continue():
+            import httpx
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+            def unpack(result):
+                self.assertFalse(result.isError)
+                data = result.structuredContent
+                if data is None:
+                    data = json.loads(next(block.text for block in result.content if block.type == 'text'))
+                return data.get('result', data)
+            async with httpx.AsyncClient(headers={'Authorization': 'Bearer ' + self.token}, trust_env=False) as client:
+                async with streamable_http_client(self.url + '/mcp', http_client=client) as (reader, writer, _):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        packet = unpack(await session.call_tool('resume_work_session', {'project_id': 'work'}))
+                        self.assertEqual(packet['payload']['summary'], 'Reviewed evidence')
+                        self.assertEqual(packet['payload']['next_action'], 'Write the proposal')
+                        self.assertEqual(packet['events'][0]['event_id'], event_id)
+                        cid = unpack(await session.call_tool('create_connection', {'provider': 'test', 'label': 'Next session'}))['connection_id']
+                        saved = unpack(await session.call_tool('save_work_session', {'project_id': 'work', 'summary': 'Drafted proposal',
+                            'next_action': 'Review proposal', 'expected_revision': packet['revision'], 'connection_id': cid, 'event_ids': [event_id]}))
+                        self.assertEqual(saved['revision'], 2)
+        asyncio.run(resume_and_continue())
+        with self.request('/api/workspace/session?project_id=work', token=self.token) as response:
+            self.assertEqual(json.load(response)['payload']['next_action'], 'Review proposal')
+
     def test_owner_workspace_reads_real_saved_projects_and_documents(self):
         self.start()
         with self.assertRaises(HTTPError) as error:

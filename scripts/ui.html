@@ -7,14 +7,25 @@
 <section id="login"><h2>Unlock your brain</h2><p>Paste the access token from the <code>http-token</code> file next to your deployment configuration. It stays in this tab’s memory until you lock or reload.</p><form id="unlock"><label for="token">Access token</label><input id="token" type="password" autocomplete="off" required><button>Unlock</button></form></section>
 <div id="workspace" hidden>
 <section><header><h2>Pick up where you left off</h2><button type="button" id="refresh-work" class="secondary">Refresh saved work</button></header><p>Open a saved project or document and carry its context into your next session. Next actions appear only when they were explicitly saved.</p><h3>Projects</h3><div id="saved-projects"></div><h3>Documents</h3><div id="saved-documents"></div><div id="saved-view" hidden><h3 id="saved-title"></h3><button type="button" id="copy-context">Copy context</button><pre id="saved-content"></pre></div><small id="saved-scope"></small></section>
+<section><h2>Save a session</h2><p>Record what changed and what to do next. Open a saved project above before updating it. Drafts stay in this tab until you lock or reload.</p><form id="session-form">
+<label for="session-project">Project ID</label><input id="session-project" required maxlength="200">
+<small id="session-revision">New project · revision 0</small>
+<label for="session-summary">What changed</label><textarea id="session-summary" required maxlength="16000"></textarea>
+<label for="session-next">Next action</label><input id="session-next" required maxlength="16000">
+<label for="session-decisions">Decisions (one per line)</label><textarea id="session-decisions"></textarea>
+<label for="session-blockers">Blockers (one per line)</label><textarea id="session-blockers"></textarea>
+<label for="session-events">Source event IDs (comma separated)</label><input id="session-events" placeholder="12, 34">
+<label for="session-documents">Source document IDs (comma separated)</label><input id="session-documents" placeholder="art_…">
+<button id="save-session">Save session</button> <button type="button" class="secondary" id="new-session">New project</button>
+</form><p id="session-status" role="status"></p></section>
 <section><form id="note"><label for="summary">Remember something</label><textarea id="summary" placeholder="A decision, an idea, or context you need later…" required></textarea><button id="save">Save note</button></form></section>
 <section><form id="search"><label for="query">Find your context</label><input id="query" type="search" placeholder="Search stored text…"><button>Search</button> <button type="button" id="recent" class="secondary">Recent events</button></form><p>Literal text search works immediately. No model or API key required.</p></section>
 <h2 id="results-title">Recent events</h2><div id="results"></div><details><summary>Customer follow-up tools</summary><section><h2>Customer desk</h2><form id="customer-search"><label for="customer-query">Customer ID, email, phone, or name</label><input id="customer-query" placeholder="alex@example.com" required><button>Check customer context</button></form><p>See recorded interactions and reasons to pause before a follow-up. A clear check is advisory; it does not authorize sending.</p><div id="customer-result" aria-live="polite"></div></section></details><p>Agent endpoint: <code id="endpoint"></code>. Use this access token as a Bearer token in an HTTP MCP client that supports custom headers.</p></div>
 <p id="status" role="status" aria-live="polite"></p>
 <script>
-let token='';const $=id=>document.getElementById(id);let generation=0;let customerRequest=0;let workspaceRequest=0;let selectedContext='';
+let token='';const $=id=>document.getElementById(id);let generation=0;let customerRequest=0;let workspaceRequest=0;let selectedContext='';let sessionRevision=0;
 function status(text,error=false){$('status').textContent=text;$('status').className=error?'error':'';}
-function lock(){token='';generation++;customerRequest++;workspaceRequest++;selectedContext='';$('saved-projects').replaceChildren();$('saved-documents').replaceChildren();$('saved-content').textContent='';$('saved-title').textContent='';$('saved-scope').textContent='';$('saved-view').hidden=true;$('workspace').hidden=true;$('login').hidden=false;$('lock').hidden=true;$('results').replaceChildren();$('customer-result').replaceChildren();$('customer-query').value='';$('summary').value='';$('query').value='';status('Locked.');}
+function lock(){token='';generation++;customerRequest++;workspaceRequest++;selectedContext='';resetSession();$('saved-projects').replaceChildren();$('saved-documents').replaceChildren();$('saved-content').textContent='';$('saved-title').textContent='';$('saved-scope').textContent='';$('saved-view').hidden=true;$('workspace').hidden=true;$('login').hidden=false;$('lock').hidden=true;$('results').replaceChildren();$('customer-result').replaceChildren();$('customer-query').value='';$('summary').value='';$('query').value='';status('Locked.');}
 async function api(path,options={}){const response=await fetch(path,{...options,cache:'no-store',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'}});const body=await response.json();if(!response.ok){if(response.status===401)lock();throw new Error(body.error||'Request failed');}return body;}
 async function load(){const current=++generation;const q=$('query').value.trim();const rows=await api('/api/events'+(q?'?q='+encodeURIComponent(q):''));if(current!==generation)return;$('results-title').textContent=q?'Search results':'Recent events';$('results').replaceChildren();if(!rows.length){const p=document.createElement('p');p.textContent=q?'No matching events.':'No memories yet. Save your first note above.';$('results').append(p);}for(const row of rows){const article=document.createElement('article');const small=document.createElement('small');small.textContent='#'+row.id+' · '+row.source+' · '+row.type+' · '+row.ts;const p=document.createElement('p');p.textContent=row.payload?.summary||JSON.stringify(row.payload,null,2);article.append(small,p);$('results').append(article);}status(rows.length+' event(s). Showing up to 50.');}
 async function loadSaved(){
@@ -31,11 +42,22 @@ async function loadSaved(){
 }
 async function openSaved(item){
  const current=++workspaceRequest;
- const path=item.project_id?'/api/workspace/project?project_id='+encodeURIComponent(item.project_id):'/api/workspace/document?artifact_id='+encodeURIComponent(item.artifact_id);
+ const path=item.project_id?'/api/workspace/session?project_id='+encodeURIComponent(item.project_id):'/api/workspace/document?artifact_id='+encodeURIComponent(item.artifact_id);
  const data=await api(path);if(current!==workspaceRequest)return;
  selectedContext=data.content===undefined?JSON.stringify(data,null,2):data.content;
  $('saved-title').textContent=data.project_id||data.slug;$('saved-content').textContent=selectedContext;$('saved-view').hidden=false;
+ if(item.project_id){const p=data.payload;sessionRevision=data.revision;$('session-project').value=data.project_id;$('session-project').readOnly=true;$('session-revision').textContent='Editing revision '+data.revision;$('session-summary').value=p.summary||p.goal||'';$('session-next').value=p.next_action||'';for(const key of ['decisions','blockers'])$('session-'+key).value=Array.isArray(p[key])?p[key].join('\n'):'';$('session-events').value=(Array.isArray(p.session_sources?.event_ids)?p.session_sources.event_ids:[]).join(', ');$('session-documents').value=(Array.isArray(p.session_sources?.documents)?p.session_sources.documents:[]).filter(d=>d&&typeof d.artifact_id==='string').map(d=>d.artifact_id).join(', ');$('session-status').textContent='Saved facts loaded. Editing does not mark work complete.';}
 }
+function resetSession(){sessionRevision=0;$('session-form').reset();$('session-project').readOnly=false;$('session-revision').textContent='New project · revision 0';$('session-status').textContent='';}
+$('new-session').onclick=()=>{workspaceRequest++;resetSession();};
+$('session-form').onsubmit=async e=>{
+ e.preventDefault();const current=workspaceRequest;$('save-session').disabled=true;
+ const split=(id,separator)=>$(id).value.split(separator).map(x=>x.trim()).filter(Boolean);
+ const body={project_id:$('session-project').value.trim(),summary:$('session-summary').value,next_action:$('session-next').value,expected_revision:sessionRevision,decisions:split('session-decisions','\n'),blockers:split('session-blockers','\n'),event_ids:split('session-events',',').map(Number),artifact_ids:split('session-documents',',')};
+ try{const saved=await api('/api/workspace/session',{method:'POST',body:JSON.stringify(body)});if(current!==workspaceRequest)return;sessionRevision=saved.revision;$('session-project').readOnly=true;$('session-revision').textContent='Editing revision '+saved.revision;$('session-status').textContent='Session saved as revision '+saved.revision+'.';await loadSaved();}
+ catch(error){if(current===workspaceRequest)$('session-status').textContent=error.message;}
+ finally{$('save-session').disabled=false;}
+};
 $('refresh-work').onclick=()=>loadSaved().catch(error=>status(error.message,true));
 $('copy-context').onclick=async()=>{try{await navigator.clipboard.writeText(selectedContext);status('Context copied.');}catch(error){status('Clipboard unavailable. Select the context text to copy it.',true);}};
 $('customer-search').onsubmit=async e=>{
