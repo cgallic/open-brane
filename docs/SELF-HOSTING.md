@@ -39,6 +39,10 @@ sudo journalctl -u brain-mcp -n 100
 
 This starts the authenticated server on localhost at boot. It uses the same `data/starter.json`; edit the unit if you chose another config. Front it with the HTTPS proxy described below for public access.
 
+## Customer workflows
+
+Use the browser Customer desk and the [customer handoff guide](CUSTOMER-HANDOFF.md) to connect normalized call/email observations. Run `python3 brane.py demo` for an isolated, two-client MCP demonstration. No provider credentials or messages are used.
+
 ## Agents
 
 Generate stdio configuration from the installation directory:

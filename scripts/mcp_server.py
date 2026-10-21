@@ -457,10 +457,22 @@ def find_contact(query: str, limit: int = 10, business_id: str | None = None) ->
 def log_outreach(contact: str, mailbox: str, agent: str, channel: str = "email",
                  subject: str = "", message_id: str | None = None,
                  thread_id: str | None = None, ts: str | None = None,
-                 direction: str = "outbound", business_id: str | None = None) -> dict:
+                 direction: str = "outbound", business_id: str | None = None,
+                 summary: str | None = None) -> dict:
     """Record a reported interaction; does not send or verify provider delivery."""
     import crm
-    return crm.log_outreach(contact=contact, mailbox=mailbox, agent=agent, channel=channel, subject=subject, message_id=message_id, thread_id=thread_id, ts=ts, direction=direction, business_id=business_id)
+    return crm.log_outreach(contact=contact, mailbox=mailbox, agent=agent, channel=channel, subject=subject, message_id=message_id, thread_id=thread_id, ts=ts, direction=direction, business_id=business_id, summary=summary)
+
+
+@mcp.tool()
+def customer_context(contact: str, cooldown_days: int = 7, limit: int = 20,
+                     business_id: str | None = None) -> dict:
+    """Read customer facts, recent interactions, source event IDs, and an advisory follow-up check.
+
+    Includes only recorded observations; does not authorize or send a message.
+    """
+    import crm
+    return crm.customer_context(contact, cooldown_days, limit, business_id)
 
 
 @mcp.tool()

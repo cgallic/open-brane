@@ -47,7 +47,7 @@ def initialize(path, business):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config'))
+    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config', 'demo'))
     parser.add_argument('--config', type=Path, default=ROOT / 'data/starter.json')
     parser.add_argument('--business', default='personal', help='deployment identifier for first setup')
     parser.add_argument('--host', default='127.0.0.1')
@@ -68,6 +68,10 @@ def main():
         print(f'Ready. Start: python3 brane.py serve --config "{config}"', file=sys.stderr)
         print(f'Browser: http://127.0.0.1:7778\nAccess token file: {token}', file=sys.stderr)
         return 0
+    if args.command == 'demo':
+        if not python.exists():
+            parser.error('Python environment missing; run python3 brane.py setup')
+        return subprocess.call([str(python), str(ROOT / 'examples/demo_customer_handoff.py')])
     if not config.exists():
         parser.error('run python3 brane.py setup first, or supply --config')
     if not python.exists():

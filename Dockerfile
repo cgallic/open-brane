@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements-core.txt \
 COPY SCHEMA.sql brane.py ./
 COPY schemas/ schemas/
 COPY scripts/ scripts/
+COPY examples/ examples/
 COPY docker-entrypoint.sh ./
 USER brane
 VOLUME ["/data"]

@@ -1,0 +1,18 @@
+{
+  "contact": {
+    "contact_id": "demo-lead",
+    "display_name": "Alex Demo",
+    "email": "alex@example.invalid",
+    "kind": "lead",
+    "contact_policy": "unknown"
+  },
+  "interaction": {
+    "contact": "demo-lead",
+    "mailbox": "demo-phone-line",
+    "agent": "voice-workflow",
+    "channel": "call",
+    "direction": "inbound",
+    "message_id": "demo-call-001",
+    "summary": "Alex asked for a quote and a callback tomorrow."
+  }
+}

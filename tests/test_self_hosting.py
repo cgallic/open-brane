@@ -141,6 +141,91 @@ class SelfHostingTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('at least 32', proc.stderr)
 
+    def test_customer_workflow_http_retry_context_and_restart(self):
+        self.start()
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/customer-context?contact=alex')
+        self.assertEqual(error.exception.code, 401)
+        with self.assertRaises(HTTPError) as invalid_scope:
+            self.request('/api/customer-context?contact=alex&business_id=foreign', token=self.token)
+        self.assertEqual(invalid_scope.exception.code, 400)
+        with self.request('/api/contacts', {'contact_id': 'alex', 'kind': 'lead', 'contact_policy': 'allowed'}, self.token):
+            pass
+        body = {'contact': 'alex', 'mailbox': 'demo-line', 'agent': 'voice', 'channel': 'call',
+                'direction': 'inbound', 'message_id': 'call-1', 'summary': 'Please call back tomorrow.'}
+        with self.request('/api/interactions', body, self.token) as response:
+            first = json.load(response)
+            self.assertEqual(response.status, 201)
+        with self.request('/api/interactions', body, self.token) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.load(response)['event_id'], first['event_id'])
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/interactions', {**body, 'summary': 'Changed'}, self.token)
+        self.assertEqual(error.exception.code, 409)
+        self.stop(); self.start()
+        with self.request('/api/customer-context?contact=alex', token=self.token) as response:
+            result = json.load(response)
+        self.assertEqual(result['latest_interaction']['summary'], body['summary'])
+        self.assertEqual(result['decision']['whose_turn'], 'awaiting_us')
+        self.assertFalse(result['send_authorized'])
+        # A browser/HTTP-created interaction is readable through real HTTP MCP.
+        async def read_mcp():
+            import httpx
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+            async with httpx.AsyncClient(headers={'Authorization': 'Bearer ' + self.token}, trust_env=False) as client:
+                async with streamable_http_client(self.url + '/mcp', http_client=client) as (reader, writer, _):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        answer = await session.call_tool('customer_context', {'contact': 'alex'})
+                        self.assertFalse(answer.isError)
+                        data = answer.structuredContent
+                        if data is None:
+                            data = json.loads(next(block.text for block in answer.content if block.type == 'text'))
+                        self.assertEqual(data.get('result', data)['evidence'], result['evidence'])
+        asyncio.run(read_mcp())
+        # Run the documented standard-library adapter twice against this server.
+        command = [sys.executable, str(ROOT / 'examples/push_customer_handoff.py'),
+                   '--url', self.url, '--token-file', str(self.token_path)]
+        for expected_retry in (False, True):
+            example = subprocess.run(command, capture_output=True, text=True, timeout=15)
+            self.assertEqual(example.returncode, 0, example.stderr)
+            data = json.loads(example.stdout)
+            self.assertEqual(data['deduped'], expected_retry)
+            self.assertEqual(data['customer_context']['decision']['verdict'], 'caution')
+
+    def test_customer_workflow_rejects_unsafe_inputs_without_writes(self):
+        self.start()
+        invalid = [('/api/contacts', {'contact_id': 'alex', 'business_id': 'other'}),
+                   ('/api/contacts', {'contact_id': 'alex', 'db_path': '/tmp/other.db'}),
+                   ('/api/contacts', []), ('/api/interactions', {'contact': 'unknown'})]
+        for path, body in invalid:
+            with self.subTest(path=path, body=body):
+                with self.assertRaises(HTTPError) as error:
+                    self.request(path, body, self.token)
+                self.assertEqual(error.exception.code, 400)
+        with self.request('/api/contacts', {'contact_id': 'alex'}, self.token):
+            pass
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/interactions', {'contact': 'alex', 'mailbox': 'line', 'agent': 'voice',
+                'message_id': 'secret', 'summary': 'sk-' + 'X' * 80}, self.token)
+        self.assertEqual(error.exception.code, 422)
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/interactions', {'summary': 'x' * 270000}, self.token)
+        self.assertEqual(error.exception.code, 413)
+        with self.request('/api/customer-context?contact=alex', token=self.token) as response:
+            self.assertEqual(json.load(response)['timeline'], [])
+
+    def test_scripted_two_client_demo(self):
+        proc = subprocess.run([sys.executable, str(ROOT / 'brane.py'), 'demo', '--skip-install'],
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = json.loads(proc.stdout)
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['clients'], 2)
+        self.assertTrue(result['stale_document_edit_rejected'])
+        self.assertEqual(result['messages_sent'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

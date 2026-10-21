@@ -59,6 +59,42 @@ def create_app(config_path):
         except (ValueError, sqlite3.Error) as exc:
             return JSONResponse({'error': str(exc)}, status_code=400)
 
+    async def customer_workflow(request):
+        import crm
+        from record_event import EventConflict
+        from policy_check import PolicyError
+        try:
+            if request.method in {'GET', 'HEAD'}:
+                if set(request.query_params) - {'contact', 'limit', 'cooldown_days'}:
+                    raise ValueError('Unsupported customer context query parameter')
+                result = await run_in_threadpool(crm.customer_context,
+                    contact=request.query_params.get('contact', ''),
+                    limit=int(request.query_params.get('limit', '20')),
+                    cooldown_days=int(request.query_params.get('cooldown_days', '7')))
+                return JSONResponse(result)
+            raw = bytearray()
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 262144:
+                    return JSONResponse({'error': 'Request exceeds 256 KiB'}, status_code=413)
+            body = json.loads(raw)
+            contact_fields = {'contact_id', 'email', 'phone', 'display_name', 'kind', 'contact_policy', 'observed_at', 'valid_until'}
+            interaction_fields = {'contact', 'mailbox', 'agent', 'channel', 'subject', 'message_id', 'thread_id', 'ts', 'direction', 'summary'}
+            is_contact = request.url.path == '/api/contacts'
+            allowed = contact_fields if is_contact else interaction_fields
+            if not isinstance(body, dict) or set(body) - allowed:
+                raise ValueError('Provide a JSON object containing only documented fields')
+            result = await run_in_threadpool(crm.upsert_contact if is_contact else crm.log_outreach, **body)
+            return JSONResponse(result, status_code=200 if result.get('deduped') else 201)
+        except EventConflict:
+            return JSONResponse({'error': 'Interaction identity already has different content'}, status_code=409)
+        except PolicyError:
+            return JSONResponse({'error': 'Interaction rejected by the write policy'}, status_code=422)
+        except (ValueError, TypeError):
+            return JSONResponse({'error': 'Invalid customer workflow input; check the documented fields and values'}, status_code=400)
+        except sqlite3.Error:
+            return JSONResponse({'error': 'Customer store unavailable'}, status_code=503)
+
     # Outer Host validation covers UI, REST, and MCP. A configured public origin
     # permits a reverse-proxy domain without accepting arbitrary Host headers.
     public = urlparse(config.get('public_origin', 'http://127.0.0.1'))
@@ -69,7 +105,10 @@ def create_app(config_path):
     brain.mcp.settings.json_response = True
     brain.mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     app = brain.mcp.streamable_http_app()
-    app.router.routes.extend([Route('/', home), Route('/healthz', live), Route('/api/events', events, methods=['GET', 'POST'])])
+    app.router.routes.extend([Route('/', home), Route('/healthz', live), Route('/api/events', events, methods=['GET', 'POST']),
+        Route('/api/contacts', customer_workflow, methods=['POST']),
+        Route('/api/interactions', customer_workflow, methods=['POST']),
+        Route('/api/customer-context', customer_workflow)])
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
 
     class OwnerAuth:

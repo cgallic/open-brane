@@ -27,5 +27,7 @@ jobs:
           docker compose -f compose.json down
           docker compose -f compose.json up -d --wait
           curl --fail -H "Authorization: Bearer $token" 'http://127.0.0.1:7778/api/events?q=persistence' | python -c 'import json,sys; assert len(json.load(sys.stdin)) == 1'
+      - name: Run two-client demo inside the core-only image
+        run: docker compose -f compose.json exec -T brane python /app/brane.py demo --skip-install
       - if: always()
         run: docker compose -f compose.json logs
