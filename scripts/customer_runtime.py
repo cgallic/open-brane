@@ -48,17 +48,69 @@ def revoke_connection(connection_id):
     if not changed: raise PermissionError("connection not found or already revoked")
     return {"connection_id": connection_id, "revoked": True}
 
-def save_checkpoint(project_id, payload, connection_id):
+def save_checkpoint(project_id, payload, connection_id, expected_revision=None, change_summary=None):
     auth = _connection(connection_id, write=True)
-    if not isinstance(payload, dict) or not project_id: raise ValueError("project_id and object payload are required")
-    with closing(sqlite3.connect(AUTH_DB)) as c:
-        c.execute("INSERT INTO checkpoints VALUES (?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET payload_json=excluded.payload_json, connection_id=excluded.connection_id, updated_at=excluded.updated_at", (project_id, OWNER, json.dumps(payload, ensure_ascii=False, sort_keys=True), auth["connection_id"], now()))
+    if not isinstance(payload, dict) or not isinstance(project_id, str) or not project_id.strip():
+        raise ValueError("project_id and object payload are required")
+    if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0):
+        raise ValueError("expected_revision must be a nonnegative integer")
+    if change_summary is not None and (not isinstance(change_summary, str) or not change_summary.strip()):
+        raise ValueError("change_summary must be a nonempty string")
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
+    with closing(sqlite3.connect(AUTH_DB, timeout=30)) as c:
+        c.execute("BEGIN IMMEDIATE")
+        previous = c.execute("SELECT owner_id,payload_json,connection_id,updated_at FROM checkpoints WHERE project_id=?", (project_id,)).fetchone()
+        if previous and previous[0] != OWNER:
+            raise PermissionError("project belongs to another owner")
+        revision = c.execute("SELECT COALESCE(MAX(revision),0) FROM checkpoint_revisions WHERE project_id=? AND owner_id=?", (project_id,OWNER)).fetchone()[0]
+        if previous and revision == 0:
+            # Preserve an existing legacy checkpoint before its first revisioned edit.
+            revision = 1
+            c.execute("INSERT INTO checkpoint_revisions VALUES (?,?,?,?,?,?,?)", (project_id,OWNER,revision,previous[1],previous[2],previous[3],"Preserved existing checkpoint"))
+        if expected_revision is not None and revision != expected_revision:
+            raise RuntimeError(f"checkpoint revision conflict: expected {expected_revision}, current {revision}")
+        revision += 1
+        stamp = now()
+        c.execute("INSERT INTO checkpoint_revisions VALUES (?,?,?,?,?,?,?)", (project_id,OWNER,revision,raw,auth["connection_id"],stamp,change_summary))
+        c.execute("INSERT INTO checkpoints VALUES (?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET payload_json=excluded.payload_json, connection_id=excluded.connection_id, updated_at=excluded.updated_at", (project_id, OWNER, raw, auth["connection_id"], stamp))
         c.commit()
-    return {"project_id": project_id, "owner_id": OWNER, "connection_id": auth["connection_id"], "saved": True}
+    return {"project_id": project_id, "owner_id": OWNER, "connection_id": auth["connection_id"], "saved": True, "revision": revision}
+
+
+def checkpoint_history(project_id, connection_id, limit=50):
+    _connection(connection_id)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    with closing(sqlite3.connect(AUTH_DB)) as c:
+        c.execute("BEGIN")
+        current = c.execute("SELECT owner_id,payload_json,connection_id,updated_at FROM checkpoints WHERE project_id=?", (project_id,)).fetchone()
+        if current is None or current[0] != OWNER:
+            raise FileNotFoundError("project not found")
+        rows = c.execute("SELECT revision,payload_json,connection_id,saved_at,change_summary FROM checkpoint_revisions WHERE project_id=? AND owner_id=? ORDER BY revision DESC LIMIT ?", (project_id,OWNER,limit)).fetchall()
+    if not rows:
+        rows = [(1,current[1],current[2],current[3],"Existing checkpoint")]
+    return [{"revision":r[0], "payload":json.loads(r[1]), "connection_id":r[2], "saved_at":r[3], "change_summary":r[4]} for r in rows]
+
+
+def restore_checkpoint(project_id, revision, expected_revision, connection_id):
+    _connection(connection_id, write=True)
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        raise ValueError("revision must be a positive integer")
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+        raise ValueError("expected_revision must identify the current checkpoint")
+    with closing(sqlite3.connect(AUTH_DB)) as c:
+        row = c.execute("SELECT payload_json FROM checkpoint_revisions WHERE project_id=? AND owner_id=? AND revision=?", (project_id,OWNER,revision)).fetchone()
+    if row is None:
+        raise FileNotFoundError("checkpoint revision not found")
+    return save_checkpoint(project_id, json.loads(row[0]), connection_id, expected_revision,
+                           f"Restored checkpoint revision {revision}")
+
 
 def resume_checkpoint(project_id, connection_id):
     auth = _connection(connection_id)
     with closing(sqlite3.connect(AUTH_DB)) as c:
+        c.execute("BEGIN")
         row = c.execute("SELECT project_id,payload_json,connection_id,updated_at FROM checkpoints WHERE project_id=? AND owner_id=?", (project_id, OWNER)).fetchone()
+        revision = c.execute("SELECT COALESCE(MAX(revision),1) FROM checkpoint_revisions WHERE project_id=? AND owner_id=?", (project_id,OWNER)).fetchone()[0]
     if not row: return {"project_id": project_id, "found": False, "connection_id": auth["connection_id"]}
-    return {"project_id": row[0], "payload": json.loads(row[1]), "saved_by_connection_id": row[2], "updated_at": row[3], "connection_id": auth["connection_id"], "found": True}
+    return {"revision": revision, "project_id": row[0], "payload": json.loads(row[1]), "saved_by_connection_id": row[2], "updated_at": row[3], "connection_id": auth["connection_id"], "found": True}

@@ -457,10 +457,22 @@ def find_contact(query: str, limit: int = 10, business_id: str | None = None) ->
 def log_outreach(contact: str, mailbox: str, agent: str, channel: str = "email",
                  subject: str = "", message_id: str | None = None,
                  thread_id: str | None = None, ts: str | None = None,
-                 direction: str = "outbound", business_id: str | None = None) -> dict:
+                 direction: str = "outbound", business_id: str | None = None,
+                 summary: str | None = None) -> dict:
     """Record a reported interaction; does not send or verify provider delivery."""
     import crm
-    return crm.log_outreach(contact=contact, mailbox=mailbox, agent=agent, channel=channel, subject=subject, message_id=message_id, thread_id=thread_id, ts=ts, direction=direction, business_id=business_id)
+    return crm.log_outreach(contact=contact, mailbox=mailbox, agent=agent, channel=channel, subject=subject, message_id=message_id, thread_id=thread_id, ts=ts, direction=direction, business_id=business_id, summary=summary)
+
+
+@mcp.tool()
+def customer_context(contact: str, cooldown_days: int = 7, limit: int = 20,
+                     business_id: str | None = None) -> dict:
+    """Read customer facts, recent interactions, source event IDs, and an advisory follow-up check.
+
+    Includes only recorded observations; does not authorize or send a message.
+    """
+    import crm
+    return crm.customer_context(contact, cooldown_days, limit, business_id)
 
 
 @mcp.tool()
@@ -491,6 +503,48 @@ def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def workspace_overview(limit: int = 20, since: str | None = None) -> dict:
+    """Find saved projects, documents, and recently recorded activity in this owner deployment.
+
+    Next actions are only those explicitly saved in checkpoint payloads; no progress is inferred.
+    """
+    import workspace
+    return workspace.overview(limit, since)
+
+
+@mcp.tool()
+def read_saved_project(project_id: str) -> dict:
+    """Read a saved project checkpoint by an ID returned by workspace_overview."""
+    import workspace
+    return workspace.read_project(project_id)
+
+
+@mcp.tool()
+def read_saved_document(artifact_id: str, revision: int | None = None) -> dict:
+    """Read and integrity-check a saved document from this owner deployment."""
+    import workspace
+    return workspace.read_document(artifact_id, revision)
+
+
+@mcp.tool()
+def save_work_session(project_id: str, summary: str, next_action: str, expected_revision: int,
+                      connection_id: str, decisions: list[str] | None = None,
+                      blockers: list[str] | None = None, event_ids: list[int] | None = None,
+                      artifact_ids: list[str] | None = None) -> dict:
+    """Save explicit session facts and source references. Use revision 0 to create; otherwise resume first."""
+    import workspace
+    return workspace.save_session(project_id, summary, next_action, expected_revision,
+                                  connection_id, decisions, blockers, event_ids, artifact_ids)
+
+
+@mcp.tool()
+def resume_work_session(project_id: str) -> dict:
+    """Resume saved context with next action, decisions, blockers and pinned source references."""
+    import workspace
+    return workspace.resume_session(project_id)
+
+
+@mcp.tool()
 def create_connection(provider: str, label: str, scopes: list[str] | None = None,
                       read_only: bool | None = None) -> dict:
     """Create a server-stamped customer connection; no provider credential is stored."""
@@ -504,9 +558,22 @@ def revoke_connection(connection_id: str) -> dict:
 
 
 @mcp.tool()
-def save_project_checkpoint(project_id: str, payload: dict, connection_id: str) -> dict:
-    """Save scoped project context/checkpoint with authenticated connection provenance."""
-    return customer.save_checkpoint(project_id, payload, connection_id)
+def save_project_checkpoint(project_id: str, payload: dict, connection_id: str,
+                            expected_revision: int | None = None, change_summary: str | None = None) -> dict:
+    """Save context with connection provenance; supply expected_revision to reject stale edits."""
+    return customer.save_checkpoint(project_id, payload, connection_id, expected_revision, change_summary)
+
+
+@mcp.tool()
+def project_checkpoint_history(project_id: str, connection_id: str, limit: int = 50) -> list[dict]:
+    """Read previous checkpoint revisions so earlier session context can be recovered."""
+    return customer.checkpoint_history(project_id, connection_id, limit)
+
+
+@mcp.tool()
+def restore_project_checkpoint(project_id: str, revision: int, expected_revision: int, connection_id: str) -> dict:
+    """Restore saved context as a new revision; reject a stale current revision."""
+    return customer.restore_checkpoint(project_id, revision, expected_revision, connection_id)
 
 
 @mcp.tool()

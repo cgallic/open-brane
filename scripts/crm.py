@@ -13,12 +13,13 @@ import json
 import os
 import re
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crm_providers import CRMProviderError, load_provider, validate_facts
 from record_event import append_event
+from policy_check import PolicyError
 
 SOURCE = "crm"
 KINDS = {"lead", "customer", "contact", "partner", "internal", "test", "automated", "dead"}
@@ -249,7 +250,7 @@ def get_pipeline(limit=50, business_id=None, *, db_path=None):
 
 
 def log_outreach(contact, mailbox, agent, channel="email", subject="", message_id=None,
-                 thread_id=None, ts=None, direction="outbound", business_id=None, *, db_path=None):
+                 thread_id=None, ts=None, direction="outbound", business_id=None, summary=None, *, db_path=None):
     """Record a reported interaction; no send, provider execution or delivery claim."""
     business = _business(business_id)
     if channel not in CHANNELS or direction not in {"inbound", "outbound"}:
@@ -258,6 +259,8 @@ def log_outreach(contact, mailbox, agent, channel="email", subject="", message_i
         raise ValueError("message_id is required for deterministic retry identity")
     message_id = _id(message_id, "message_id")
     timestamp = _timestamp(ts) if ts is not None else None
+    if summary is not None and (not isinstance(summary, str) or not summary.strip()):
+        raise ValueError("summary must be a nonempty string when provided")
     with _connection(db_path, write=True) as conn:
         matches = _resolve(contact, _contacts(conn, business))
         if len(matches) != 1:
@@ -269,7 +272,7 @@ def log_outreach(contact, mailbox, agent, channel="email", subject="", message_i
                   "mailbox": _id(mailbox, "mailbox"), "agent": _id(agent, "agent"),
                   "channel": channel, "direction": direction, "subject": str(subject or "")[:300],
                   "message_id": message_id, "thread_id": thread_id, "source_ref": source_ref,
-                  "observation_status": "reported", "summary": "Reported " + direction + " " + channel + " interaction"}
+                  "observation_status": "reported", "summary": summary if summary is not None else "Reported " + direction + " " + channel + " interaction"}
         dedupe = json.dumps([business, direction, channel, message_id, resolved["contact_id"]], separators=(",", ":"))
         result = append_event(source=SOURCE, event_type="crm.touch", payload=record,
                               actor=resolved["contact_id"], ts=timestamp, dedupe_key=dedupe, connection=conn)
@@ -278,10 +281,10 @@ def log_outreach(contact, mailbox, agent, channel="email", subject="", message_i
 
 
 def outreach_history(contact=None, mailbox=None, agent=None, since=None, limit=50,
-                     business_id=None, *, db_path=None):
+                     business_id=None, *, db_path=None, _conn=None):
     business = _business(business_id)
     since_dt = _parse(since) if since else None
-    with _connection(db_path) as conn:
+    with (nullcontext(_conn) if _conn is not None else _connection(db_path)) as conn:
         contacts = _contacts(conn, business)
         ids = {c["contact_id"] for c in _resolve(contact, contacts)} if contact else None
         records = []
@@ -327,7 +330,7 @@ def _provider_facts(contact, business):
                 pass
 
 
-def check_outreach(contact, cooldown_days=7, mailbox=None, business_id=None, *, db_path=None, now=None):
+def check_outreach(contact, cooldown_days=7, mailbox=None, business_id=None, *, db_path=None, now=None, _conn=None):
     """Combined policy facts, never permission to send. Fail closed on unknown state."""
     business = _business(business_id)
     if isinstance(cooldown_days, bool) or not isinstance(cooldown_days, int) or cooldown_days < 0:
@@ -337,12 +340,16 @@ def check_outreach(contact, cooldown_days=7, mailbox=None, business_id=None, *, 
     def decision(verdict, reason, exit_code=1):
         return {**result, "verdict": verdict, "reason": reason, "exit": exit_code}
     try:
-        matches = find_contact(contact, business_id=business, db_path=db_path)
+        if _conn is None:
+            with _connection(db_path) as conn:
+                conn.execute("BEGIN")
+                return check_outreach(contact, cooldown_days, mailbox, business, db_path=db_path, now=current_time, _conn=conn)
+        matches = _resolve(contact, _contacts(_conn, business))
         if len(matches) != 1:
             return decision("caution", "contact is unknown or ambiguous")
         row = matches[0]
         result.update(contact_id=row["contact_id"], kind=row["kind"], status=row["status"], whose_turn=row["whose_turn"])
-        hist = outreach_history(row["contact_id"], business_id=business, db_path=db_path)
+        hist = outreach_history(row["contact_id"], business_id=business, db_path=db_path, _conn=_conn)
         result.update(history=hist, history_count=len(hist))
         if row["kind"] in BLOCK_KINDS or row["contact_policy"] == "do_not_contact":
             return decision("do_not_contact", "contact is excluded from outreach", 2)
@@ -382,9 +389,40 @@ def check_outreach(contact, cooldown_days=7, mailbox=None, business_id=None, *, 
         return decision("caution", "contact facts are unavailable or invalid")
 
 
+def customer_context(contact, cooldown_days=7, limit=20, business_id=None, *, db_path=None):
+    """One SQLite read snapshot for a customer handoff; an advisory, never a send grant.
+
+    Only recorded observations are visible. A missing event is not evidence that
+    an interaction did not happen. External CRM facts are checked by check_outreach.
+    """
+    business = _business(business_id)
+    _limit(limit)
+    checked = _now()
+    with _connection(db_path) as conn:
+        conn.execute("BEGIN")
+        matches = _resolve(contact, _contacts(conn, business))
+        decision = check_outreach(contact, cooldown_days, business_id=business,
+                                  db_path=db_path, now=checked, _conn=conn)
+        result = {"business_id": business, "checked_at": _iso(checked),
+                  "status": "found" if len(matches) == 1 else "unknown" if not matches else "ambiguous",
+                  "decision": decision, "contact": None, "timeline": [],
+                  "latest_interaction": None, "history_scope": "recorded_interactions_only",
+                  "send_authorized": False}
+        if len(matches) != 1:
+            return result
+        row = matches[0]
+        timeline = outreach_history(row["contact_id"], business_id=business, limit=limit, _conn=conn)
+        result.update(contact={**row, "policy_fresh": _parse(row["observed_at"]) <= checked < _parse(row["valid_until"])},
+                      timeline=timeline, latest_interaction=timeline[0] if timeline else None,
+                      evidence={"contact_event_id": row["event_id"],
+                                "interaction_event_ids": [r["event_id"] for r in timeline]},
+                      timeline_limit=limit)
+        return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["check_outreach", "outreach_history", "find_contact", "log_outreach", "upsert_contact", "upsert_deal", "get_pipeline"])
+    parser.add_argument("operation", choices=["check_outreach", "outreach_history", "find_contact", "log_outreach", "upsert_contact", "upsert_deal", "get_pipeline", "customer_context"])
     parser.add_argument("--arguments", help="JSON object; omitted reads stdin")
     args = parser.parse_args()
     import sys
@@ -394,7 +432,7 @@ def main():
             raise ValueError("arguments must be an object")
         result = globals()[args.operation](**arguments)
         print(json.dumps(result, ensure_ascii=False))
-    except (ValueError, TypeError, sqlite3.Error, CRMProviderError):
+    except (ValueError, TypeError, sqlite3.Error, CRMProviderError, PolicyError):
         print(json.dumps({"status": "error", "error": "CRM operation rejected; check configuration, scope and inputs"}))
         return 1
     return 0

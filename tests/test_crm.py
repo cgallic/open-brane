@@ -142,6 +142,54 @@ class CRMTests(unittest.TestCase):
         self.assertEqual(gate["verdict"], "caution")
         self.assertIn("awaiting_reply", gate["reason"])
 
+    def test_customer_context_has_summary_evidence_and_fail_closed_identity(self):
+        self.contact(kind="lead", display_name="Alex")
+        touch = crm.log_outreach("person", "phone-line", "voice", message_id="call-1",
+                                 channel="call", direction="inbound", summary="Requested a quote.")
+        context = crm.customer_context("person")
+        self.assertEqual(context["status"], "found")
+        self.assertEqual(context["latest_interaction"]["summary"], "Requested a quote.")
+        self.assertEqual(context["evidence"]["interaction_event_ids"], [touch["event_id"]])
+        self.assertEqual(context["decision"]["whose_turn"], "awaiting_us")
+        self.assertTrue(context["contact"]["policy_fresh"])
+        self.assertFalse(context["send_authorized"])
+        self.assertEqual(crm.customer_context("missing")["status"], "unknown")
+        self.contact("second", display_name="Alex")
+        ambiguous = crm.customer_context("Alex")
+        self.assertEqual(ambiguous["status"], "ambiguous")
+        self.assertIsNone(ambiguous["contact"])
+        self.assertEqual(ambiguous["timeline"], [])
+        with self.assertRaises(ValueError):
+            crm.customer_context("person", business_id="foreign")
+
+    def test_interaction_summary_retries_preserve_identity_and_reject_changes(self):
+        self.contact()
+        args = dict(contact="person", mailbox="line", agent="voice", message_id="call-1", summary="Original call.")
+        first = crm.log_outreach(**args)
+        retry = crm.log_outreach(**args)
+        self.assertEqual(first["event_id"], retry["event_id"])
+        with self.assertRaises(EventConflict):
+            crm.log_outreach(**{**args, "summary": "Different call."})
+        self.assertEqual(crm.customer_context("person")["latest_interaction"]["summary"], "Original call.")
+
+    def test_context_is_one_local_snapshot_during_concurrent_write(self):
+        self.contact(kind="lead")
+        original = crm._contacts
+        written = False
+        def read_and_insert(conn, business):
+            nonlocal written
+            rows = original(conn, business)
+            if not written:
+                written = True
+                # A separate writer commits after this reader established its snapshot.
+                crm.log_outreach("person", "sender", "other-client", message_id="racing-write")
+            return rows
+        with patch.object(crm, "_contacts", side_effect=read_and_insert):
+            context = crm.customer_context("person")
+        self.assertIsNone(context["latest_interaction"])
+        self.assertEqual(context["decision"]["verdict"], "clear_to_contact")
+        self.assertEqual(crm.customer_context("person")["decision"]["verdict"], "caution")
+
 
 if __name__ == "__main__":
     unittest.main()

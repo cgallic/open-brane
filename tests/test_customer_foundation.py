@@ -66,6 +66,79 @@ class CustomerFoundationTests(unittest.TestCase):
         with self.assertRaises(PermissionError): art.read(made["artifact_id"], a["connection_id"])
         with self.assertRaises(ValueError): art.create("../escape", "x", b["connection_id"])
 
+    def test_session_handoff_pins_sources_and_restores_history(self):
+        import sqlite3
+        from contextlib import closing
+        import workspace
+        folder, cfg = self.instance("sessions")
+        rt, art, record, mcp = self.load_modules(folder, cfg)
+        a = rt.create_connection("client-a", "First session")["connection_id"]
+        b = rt.create_connection("client-b", "Next session")["connection_id"]
+        event = record.append_event(source="test", event_type="note", payload={"summary": "Decision evidence"})
+        doc = art.create("research", "Original source", a)
+        rt.save_checkpoint("research", {"goal": "Keep original goal", "custom": 42}, a)
+        saved = mcp.save_work_session("research", "Read the paper", "Check the appendix", 1, a,
+                                     ["Use source data"], ["Need appendix"], [event["event_id"]], [doc["artifact_id"]])
+        self.assertEqual(saved["revision"], 2)
+        with self.assertRaisesRegex(RuntimeError, "conflict"):
+            mcp.save_work_session("research", "Stale edit", "Wrong next step", 1, b)
+        art.edit(doc["artifact_id"], "Updated source", 1, b)
+        packet = mcp.resume_work_session("research")
+        self.assertEqual(packet["payload"]["custom"], 42)
+        self.assertEqual(packet["payload"]["next_action"], "Check the appendix")
+        self.assertEqual(packet["events"][0]["summary"], "Decision evidence")
+        self.assertEqual(packet["documents"][0]["revision"], 1)
+        self.assertIn("has changed", packet["warnings"][0])
+        self.assertEqual(mcp.read_saved_document(doc["artifact_id"], 1)["content"], "Original source")
+        restored = mcp.restore_project_checkpoint("research", 1, 2, b)
+        self.assertEqual(restored["revision"], 3)
+        self.assertEqual(mcp.resume_project_checkpoint("research", b)["payload"], {"goal": "Keep original goal", "custom": 42})
+        self.assertEqual([r["revision"] for r in rt.checkpoint_history("research", b)], [3, 2, 1])
+        with self.assertRaises(ValueError):
+            workspace.save_session("missing", "summary", "next", 0, a, event_ids=[999999])
+        ro = rt.create_connection("reader", "Read only", read_only=True)["connection_id"]
+        with self.assertRaises(PermissionError):
+            workspace.save_session("research", "summary", "next", 3, ro)
+        rt.revoke_connection(a)
+        with self.assertRaises(PermissionError):
+            workspace.save_session("research", "summary", "next", 3, a)
+        with closing(sqlite3.connect(rt.AUTH_DB)) as conn:
+            conn.execute("INSERT INTO checkpoints VALUES (?,?,?,?,?)", ("foreign", "another-owner", '{}', b, "2020-01-01"))
+            conn.commit()
+        with self.assertRaises(PermissionError):
+            rt.save_checkpoint("foreign", {"overwrite": True}, b)
+        with self.assertRaises(FileNotFoundError):
+            rt.checkpoint_history("foreign", b)
+        with self.assertRaises(FileNotFoundError):
+            rt.restore_checkpoint("foreign", 1, 1, b)
+        # A missing source never replaces the current checkpoint.
+        with self.assertRaises(ValueError):
+            workspace.save_session("research", "invalid update", "next", 3, b, event_ids=[999999])
+        self.assertEqual(workspace.read_project("research")["revision"], 3)
+        # Existing deployments retain their last checkpoint as revision 1 on first edit.
+        with closing(sqlite3.connect(rt.AUTH_DB)) as conn:
+            conn.execute("INSERT INTO checkpoints VALUES (?,?,?,?,?)", ("legacy", rt.OWNER, '{"old":true}', b, "2020-01-01"))
+            conn.commit()
+        self.assertEqual(workspace.read_project("legacy")["revision"], 1)
+        rt.save_checkpoint("legacy", {"new": True}, b, expected_revision=1)
+        self.assertEqual(rt.checkpoint_history("legacy", b)[1]["payload"], {"old": True})
+
+    def test_concurrent_checkpoint_saves_have_one_winner(self):
+        from concurrent.futures import ThreadPoolExecutor
+        folder, cfg = self.instance("race")
+        rt, _, _, _ = self.load_modules(folder, cfg)
+        cid = rt.create_connection("test", "Concurrent sessions")["connection_id"]
+        rt.save_checkpoint("race", {"summary": "start"}, cid, 0)
+        def save(value):
+            try:
+                return rt.save_checkpoint("race", {"summary": value}, cid, 1)["revision"]
+            except RuntimeError:
+                return "conflict"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(save, ["one", "two"]))
+        self.assertCountEqual(results, [2, "conflict"])
+        self.assertEqual(len(rt.checkpoint_history("race", cid)), 2)
+
     def test_read_only_connection_cannot_write(self):
         folder, cfg = self.instance("readonly")
         rt, art, _, _ = self.load_modules(folder, cfg)

@@ -1,10 +1,62 @@
 # Open Brane
 
-**An event-log brain for people who keep losing context.**
+**Your projects, research, and decisions, available to every connected agent.**
 
-Your calendar, your Drive, your Stripe, your git commits, your Claude sessions, your Fathom recordings — they all live in different tools, with different schemas, and every time you want to reason across them you copy-paste or give up. Open Brane is the minimum viable fix: one SQLite file, one append-only table, one write path, one MCP server, and a pattern for writing adapters that takes about an hour per source.
+Open Brane is a self-hosted event-log brain for keeping work across sessions and tools. Save notes, resume project checkpoints, open versioned documents, and find what happened without rebuilding context from scratch. Your browser opens to saved work and recent activity; customer follow-up tools are optional.
 
-No framework. No ORM. No workflow engine. Fits on a USB stick.
+One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Core recording and text search need no LLM or vector database. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
+
+**For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. Save session decisions, blockers, sources, and a next action in the browser or through `save_work_session`; `resume_work_session` brings that context back. Revision history and stale-save protection help keep overlapping sessions from losing work. See [Your workspace](docs/WORKSPACE.md) for the workflow and its limits.
+
+**Customer workflow example:** after [setup](#quickstart), run `python3 brane.py demo`. Two scripted MCP clients share a call summary, check recent outreach and stale contact facts, and reject a stale document edit. This optional demo uses temporary synthetic data and sends nothing. See the [customer handoff guide](docs/CUSTOMER-HANDOFF.md).
+
+## Quickstart
+
+**Python 3.11+ and Git are the only prerequisites.** No model, API key, Ollama, or Qdrant is needed for notes, text search, CRM, or MCP.
+
+```bash
+git clone https://github.com/cgallic/open-brane.git
+cd open-brane
+python3 brane.py setup
+python3 brane.py serve
+```
+
+Open **http://127.0.0.1:7778**, paste the token from `data/http-token`, and start saving and searching notes. Setup creates the virtual environment, installs the core dependencies, generates a private access token, and initializes your database. Running setup again preserves your configuration, token, and events.
+
+On Windows, replace `python3` with `py -3.11`. No environment activation is required.
+
+### Docker
+
+Only Docker with Compose is required:
+
+```bash
+git clone https://github.com/cgallic/open-brane.git
+cd open-brane
+docker compose -f compose.json up --build -d --wait
+docker compose -f compose.json exec brane cat /data/http-token
+```
+
+Open **http://127.0.0.1:7778** and paste that token. The container runs as a non-root user; its named volume preserves your database, credentials, checkpoints, and artifacts. Only localhost is published by default. JSON is used for the Compose configuration.
+
+### Connect an agent
+
+For a local stdio MCP client, generate ready-to-paste configuration with absolute paths:
+
+```bash
+python3 brane.py mcp-config
+```
+
+The browser also includes optional **Customer follow-up tools** to look up contact facts, interaction history, and follow-up checks. Connect your existing workflow through the [authenticated customer API](docs/CUSTOMER-HANDOFF.md).
+
+For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
+
+Check your installation:
+
+```bash
+python3 brane.py doctor
+```
+
+See **[Self-hosting](docs/SELF-HOSTING.md)** for a VPS, HTTPS, backups, upgrades, token rotation, troubleshooting, and optional semantic search. The existing [starter guide](docs/STARTER.md) covers advanced configuration and provider contracts; existing `starter.py` commands remain supported.
 
 ## The idea in one paragraph
 
@@ -58,52 +110,6 @@ open-brane/
     ├── RECALL-TRACE.md        ← closing the retrieval feedback loop
     └── EDGES.md               ← typed reasoning edges, supports/contradicts/etc.
 ```
-
-## Quickstart
-
-**Python 3.11+ and Git are the only prerequisites.** No model, API key, Ollama, or Qdrant is needed for notes, text search, CRM, or MCP.
-
-```bash
-git clone https://github.com/cgallic/open-brane.git
-cd open-brane
-python3 brane.py setup
-python3 brane.py serve
-```
-
-Open **http://127.0.0.1:7778**, paste the token from `data/http-token`, and start saving and searching notes. Setup creates the virtual environment, installs the core dependencies, generates a private access token, and initializes your database. Running setup again preserves your configuration, token, and events.
-
-On Windows, replace `python3` with `py -3.11`. No environment activation is required.
-
-### Docker
-
-Only Docker with Compose is required:
-
-```bash
-git clone https://github.com/cgallic/open-brane.git
-cd open-brane
-docker compose -f compose.json up --build -d --wait
-docker compose -f compose.json exec brane cat /data/http-token
-```
-
-Open **http://127.0.0.1:7778** and paste that token. The container runs as a non-root user; its named volume preserves your database, credentials, checkpoints, and artifacts. Only localhost is published by default. JSON is used for the Compose configuration.
-
-### Connect an agent
-
-For a local stdio MCP client, generate ready-to-paste configuration with absolute paths:
-
-```bash
-python3 brane.py mcp-config
-```
-
-For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
-
-Check your installation:
-
-```bash
-python3 brane.py doctor
-```
-
-See **[Self-hosting](docs/SELF-HOSTING.md)** for a VPS, HTTPS, backups, upgrades, token rotation, troubleshooting, and optional semantic search. The existing [starter guide](docs/STARTER.md) covers advanced configuration and provider contracts; existing `starter.py` commands remain supported.
 
 ## The three hard problems this solves
 

@@ -1,21 +1,82 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Open Brane</title>
 <style>
-:root{color-scheme:light dark;font-family:system-ui,sans-serif;background:#12171c;color:#e4ecef}body{max-width:820px;margin:48px auto;padding:0 20px}h1{font-size:36px;letter-spacing:-1.5px;margin-bottom:8px}p{color:#a9b9c2;line-height:1.6}section,article{border:1px solid #35414b;border-radius:12px;padding:22px;margin:20px 0;background:#192128}label{display:block;margin-bottom:10px;font-weight:600}input,textarea,button{font:inherit;box-sizing:border-box;border:1px solid #50606d;border-radius:7px;padding:12px}input,textarea{width:100%;background:#11191f;color:#fff}textarea{resize:vertical;min-height:130px}button{background:#9ce2c5;color:#12251e;font-weight:650;cursor:pointer;margin-top:12px}button.secondary{background:transparent;color:#d1e2ea}button:disabled{opacity:.5;cursor:wait}header{display:flex;justify-content:space-between;align-items:center;gap:12px}small{color:#a9b9c2}article p{white-space:pre-wrap;overflow-wrap:anywhere;color:#e4ecef;margin-bottom:0}.error{color:#ffb0a9}#status{min-height:24px}a{color:#9ce2c5}[hidden]{display:none!important}code{overflow-wrap:anywhere}
+:root{color-scheme:light dark;font-family:system-ui,sans-serif;background:#12171c;color:#e4ecef}body{max-width:820px;margin:48px auto;padding:0 20px}h1{font-size:36px;letter-spacing:-1.5px;margin-bottom:8px}p{color:#a9b9c2;line-height:1.6}section,article{border:1px solid #35414b;border-radius:12px;padding:22px;margin:20px 0;background:#192128}label{display:block;margin-bottom:10px;font-weight:600}input,textarea,button{font:inherit;box-sizing:border-box;border:1px solid #50606d;border-radius:7px;padding:12px}input,textarea{width:100%;background:#11191f;color:#fff}textarea{resize:vertical;min-height:130px}button{background:#9ce2c5;color:#12251e;font-weight:650;cursor:pointer;margin-top:12px}button.secondary{background:transparent;color:#d1e2ea}button:disabled{opacity:.5;cursor:wait}header{display:flex;justify-content:space-between;align-items:center;gap:12px}small{color:#a9b9c2}article p{white-space:pre-wrap;overflow-wrap:anywhere;color:#e4ecef;margin-bottom:0}.error{color:#ffb0a9}#status{min-height:24px}a{color:#9ce2c5}[hidden]{display:none!important}code{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}summary{cursor:pointer;font-weight:650;padding:12px 0}
 </style></head><body>
-<header><div><h1>Open Brane</h1><p>Your memory. Your machine.</p></div><button id="lock" class="secondary" hidden>Lock</button></header>
+<header><div><h1>Open Brane</h1><p>Your projects, research, and decisions. Ready to pick up again.</p></div><button id="lock" class="secondary" hidden>Lock</button></header>
 <section id="login"><h2>Unlock your brain</h2><p>Paste the access token from the <code>http-token</code> file next to your deployment configuration. It stays in this tab’s memory until you lock or reload.</p><form id="unlock"><label for="token">Access token</label><input id="token" type="password" autocomplete="off" required><button>Unlock</button></form></section>
-<div id="workspace" hidden><section><form id="note"><label for="summary">Remember something</label><textarea id="summary" placeholder="A decision, an idea, or context you need later…" required></textarea><button id="save">Save note</button></form></section>
+<div id="workspace" hidden>
+<section><header><h2>Pick up where you left off</h2><button type="button" id="refresh-work" class="secondary">Refresh saved work</button></header><p>Open a saved project or document and carry its context into your next session. Next actions appear only when they were explicitly saved.</p><h3>Projects</h3><div id="saved-projects"></div><h3>Documents</h3><div id="saved-documents"></div><div id="saved-view" hidden><h3 id="saved-title"></h3><button type="button" id="copy-context">Copy context</button><pre id="saved-content"></pre></div><small id="saved-scope"></small></section>
+<section><h2>Save a session</h2><p>Record what changed and what to do next. Open a saved project above before updating it. Drafts stay in this tab until you lock or reload.</p><form id="session-form">
+<label for="session-project">Project ID</label><input id="session-project" required maxlength="200">
+<small id="session-revision">New project · revision 0</small>
+<label for="session-summary">What changed</label><textarea id="session-summary" required maxlength="16000"></textarea>
+<label for="session-next">Next action</label><input id="session-next" required maxlength="16000">
+<label for="session-decisions">Decisions (one per line)</label><textarea id="session-decisions"></textarea>
+<label for="session-blockers">Blockers (one per line)</label><textarea id="session-blockers"></textarea>
+<label for="session-events">Source event IDs (comma separated)</label><input id="session-events" placeholder="12, 34">
+<label for="session-documents">Source document IDs (comma separated)</label><input id="session-documents" placeholder="art_…">
+<button id="save-session">Save session</button> <button type="button" class="secondary" id="new-session">New project</button>
+</form><p id="session-status" role="status"></p></section>
+<section><form id="note"><label for="summary">Remember something</label><textarea id="summary" placeholder="A decision, an idea, or context you need later…" required></textarea><button id="save">Save note</button></form></section>
 <section><form id="search"><label for="query">Find your context</label><input id="query" type="search" placeholder="Search stored text…"><button>Search</button> <button type="button" id="recent" class="secondary">Recent events</button></form><p>Literal text search works immediately. No model or API key required.</p></section>
-<h2 id="results-title">Recent events</h2><div id="results"></div><p>Agent endpoint: <code id="endpoint"></code>. Use this access token as a Bearer token in an HTTP MCP client that supports custom headers.</p></div>
+<h2 id="results-title">Recent events</h2><div id="results"></div><details><summary>Customer follow-up tools</summary><section><h2>Customer desk</h2><form id="customer-search"><label for="customer-query">Customer ID, email, phone, or name</label><input id="customer-query" placeholder="alex@example.com" required><button>Check customer context</button></form><p>See recorded interactions and reasons to pause before a follow-up. A clear check is advisory; it does not authorize sending.</p><div id="customer-result" aria-live="polite"></div></section></details><p>Agent endpoint: <code id="endpoint"></code>. Use this access token as a Bearer token in an HTTP MCP client that supports custom headers.</p></div>
 <p id="status" role="status" aria-live="polite"></p>
 <script>
-let token='';const $=id=>document.getElementById(id);let generation=0;
+let token='';const $=id=>document.getElementById(id);let generation=0;let customerRequest=0;let workspaceRequest=0;let selectedContext='';let sessionRevision=0;
 function status(text,error=false){$('status').textContent=text;$('status').className=error?'error':'';}
-function lock(){token='';generation++;$('workspace').hidden=true;$('login').hidden=false;$('lock').hidden=true;$('results').replaceChildren();$('summary').value='';$('query').value='';status('Locked.');}
+function lock(){token='';generation++;customerRequest++;workspaceRequest++;selectedContext='';resetSession();$('saved-projects').replaceChildren();$('saved-documents').replaceChildren();$('saved-content').textContent='';$('saved-title').textContent='';$('saved-scope').textContent='';$('saved-view').hidden=true;$('workspace').hidden=true;$('login').hidden=false;$('lock').hidden=true;$('results').replaceChildren();$('customer-result').replaceChildren();$('customer-query').value='';$('summary').value='';$('query').value='';status('Locked.');}
 async function api(path,options={}){const response=await fetch(path,{...options,cache:'no-store',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'}});const body=await response.json();if(!response.ok){if(response.status===401)lock();throw new Error(body.error||'Request failed');}return body;}
 async function load(){const current=++generation;const q=$('query').value.trim();const rows=await api('/api/events'+(q?'?q='+encodeURIComponent(q):''));if(current!==generation)return;$('results-title').textContent=q?'Search results':'Recent events';$('results').replaceChildren();if(!rows.length){const p=document.createElement('p');p.textContent=q?'No matching events.':'No memories yet. Save your first note above.';$('results').append(p);}for(const row of rows){const article=document.createElement('article');const small=document.createElement('small');small.textContent='#'+row.id+' · '+row.source+' · '+row.type+' · '+row.ts;const p=document.createElement('p');p.textContent=row.payload?.summary||JSON.stringify(row.payload,null,2);article.append(small,p);$('results').append(article);}status(rows.length+' event(s). Showing up to 50.');}
-$('unlock').onsubmit=async e=>{e.preventDefault();token=$('token').value.trim();try{await load();$('token').value='';$('login').hidden=true;$('workspace').hidden=false;$('lock').hidden=false;}catch(error){token='';status(error.message,true);}};
+async function loadSaved(){
+ const current=++workspaceRequest;const data=await api('/api/workspace');if(current!==workspaceRequest)return;
+ for(const [id,items] of [['saved-projects',data.projects],['saved-documents',data.documents]]){
+  const target=$(id);target.replaceChildren();
+  if(!items.length){const empty=document.createElement('p');empty.textContent=id==='saved-projects'?'No saved projects in this deployment yet. Your connected agents can save project checkpoints.':'No saved documents in this deployment yet. Your connected agents can create versioned documents.';target.append(empty);}
+  for(const item of items){const card=document.createElement('article');const title=document.createElement('h4');title.textContent=item.project_id||item.slug;const meta=document.createElement('small');meta.textContent='Saved '+item.updated_at+(item.revision?' · Revision '+item.revision:'');card.append(title,meta);
+   if(item.summary){const p=document.createElement('p');p.textContent=item.summary;card.append(p);}
+   if(item.next_action){const p=document.createElement('p');p.textContent='Saved next action: '+item.next_action;card.append(p);}
+   const button=document.createElement('button');button.type='button';button.textContent=item.project_id?'Open project context':'Read document';button.onclick=()=>openSaved(item).catch(error=>status(error.message,true));card.append(button);target.append(card);}
+ }
+ $('saved-scope').textContent=data.total_events+' recorded events. Showing up to '+data.limit_per_section+' items per section from this deployment. Refresh to pick up new work saved by agents.';
+}
+async function openSaved(item){
+ const current=++workspaceRequest;
+ const path=item.project_id?'/api/workspace/session?project_id='+encodeURIComponent(item.project_id):'/api/workspace/document?artifact_id='+encodeURIComponent(item.artifact_id);
+ const data=await api(path);if(current!==workspaceRequest)return;
+ selectedContext=data.content===undefined?JSON.stringify(data,null,2):data.content;
+ $('saved-title').textContent=data.project_id||data.slug;$('saved-content').textContent=selectedContext;$('saved-view').hidden=false;
+ if(item.project_id){const p=data.payload;sessionRevision=data.revision;$('session-project').value=data.project_id;$('session-project').readOnly=true;$('session-revision').textContent='Editing revision '+data.revision;$('session-summary').value=p.summary||p.goal||'';$('session-next').value=p.next_action||'';for(const key of ['decisions','blockers'])$('session-'+key).value=Array.isArray(p[key])?p[key].join('\n'):'';$('session-events').value=(Array.isArray(p.session_sources?.event_ids)?p.session_sources.event_ids:[]).join(', ');$('session-documents').value=(Array.isArray(p.session_sources?.documents)?p.session_sources.documents:[]).filter(d=>d&&typeof d.artifact_id==='string').map(d=>d.artifact_id).join(', ');$('session-status').textContent='Saved facts loaded. Editing does not mark work complete.';}
+}
+function resetSession(){sessionRevision=0;$('session-form').reset();$('session-project').readOnly=false;$('session-revision').textContent='New project · revision 0';$('session-status').textContent='';}
+$('new-session').onclick=()=>{workspaceRequest++;resetSession();};
+$('session-form').onsubmit=async e=>{
+ e.preventDefault();const current=workspaceRequest;$('save-session').disabled=true;
+ const split=(id,separator)=>$(id).value.split(separator).map(x=>x.trim()).filter(Boolean);
+ const body={project_id:$('session-project').value.trim(),summary:$('session-summary').value,next_action:$('session-next').value,expected_revision:sessionRevision,decisions:split('session-decisions','\n'),blockers:split('session-blockers','\n'),event_ids:split('session-events',',').map(Number),artifact_ids:split('session-documents',',')};
+ try{const saved=await api('/api/workspace/session',{method:'POST',body:JSON.stringify(body)});if(current!==workspaceRequest)return;sessionRevision=saved.revision;$('session-project').readOnly=true;$('session-revision').textContent='Editing revision '+saved.revision;$('session-status').textContent='Session saved as revision '+saved.revision+'.';await loadSaved();}
+ catch(error){if(current===workspaceRequest)$('session-status').textContent=error.message;}
+ finally{$('save-session').disabled=false;}
+};
+$('refresh-work').onclick=()=>loadSaved().catch(error=>status(error.message,true));
+$('copy-context').onclick=async()=>{try{await navigator.clipboard.writeText(selectedContext);status('Context copied.');}catch(error){status('Clipboard unavailable. Select the context text to copy it.',true);}};
+$('customer-search').onsubmit=async e=>{
+ e.preventDefault();const current=++customerRequest;
+ try{
+  const context=await api('/api/customer-context?contact='+encodeURIComponent($('customer-query').value.trim()));
+  if(current!==customerRequest)return;
+  const target=$('customer-result');target.replaceChildren();
+  const heading=document.createElement('h3');
+  heading.textContent=context.status==='found'?context.contact.display_name:context.status==='ambiguous'?'Several customers match. Use an exact ID, email, or phone.':'No recorded customer found.';
+  target.append(heading);
+  const decision=document.createElement('p');decision.textContent=context.decision.verdict+' · '+context.decision.reason;target.append(decision);
+  if(context.contact){const facts=document.createElement('p');facts.textContent='Type: '+context.contact.kind+' · Reply turn: '+context.decision.whose_turn+' · Policy snapshot: '+(context.contact.policy_fresh?'fresh':'stale')+' · Contact event #'+context.contact.event_id;target.append(facts);}
+  if(context.status==='found'&&!context.timeline.length){const empty=document.createElement('p');empty.textContent='No interactions recorded. This does not prove no contact occurred.';target.append(empty);}
+  for(const item of context.timeline){const card=document.createElement('article');const meta=document.createElement('small');meta.textContent='#'+item.event_id+' · '+item.direction+' '+item.channel+' · '+item.agent+' · '+item.ts;const text=document.createElement('p');text.textContent=item.summary;card.append(meta,text);target.append(card);}
+  const scope=document.createElement('small');scope.textContent='Recorded observations only. Provider delivery is unverified. Showing up to '+(context.timeline_limit||20)+' interactions.';target.append(scope);
+ }catch(error){if(current===customerRequest)status(error.message,true);}
+};
+$('unlock').onsubmit=async e=>{e.preventDefault();token=$('token').value.trim();try{await Promise.all([load(),loadSaved()]);$('token').value='';$('login').hidden=true;$('workspace').hidden=false;$('lock').hidden=false;}catch(error){token='';status(error.message,true);}};
 $('note').onsubmit=async e=>{e.preventDefault();$('save').disabled=true;try{await api('/api/events',{method:'POST',body:JSON.stringify({summary:$('summary').value})});$('summary').value='';$('query').value='';await load();status('Note saved.');}catch(error){status(error.message,true);}finally{$('save').disabled=false;}};
 $('search').onsubmit=e=>{e.preventDefault();load().catch(error=>status(error.message,true));};$('recent').onclick=()=>{$('query').value='';load().catch(error=>status(error.message,true));};$('lock').onclick=lock;$('endpoint').textContent=location.origin+'/mcp';
 </script></body></html>

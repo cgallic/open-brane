@@ -20,3 +20,11 @@ CREATE TABLE IF NOT EXISTS artifact_revisions (
     provenance_json TEXT NOT NULL, created_at TEXT NOT NULL, connection_id TEXT NOT NULL,
     PRIMARY KEY (artifact_id, revision_id), FOREIGN KEY (artifact_id) REFERENCES artifacts(artifact_id)
 );
+
+-- Additive history: checkpoints remains the backward-compatible current view.
+CREATE TABLE IF NOT EXISTS checkpoint_revisions (
+    project_id TEXT NOT NULL, owner_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    payload_json TEXT NOT NULL, connection_id TEXT NOT NULL, saved_at TEXT NOT NULL,
+    change_summary TEXT,
+    PRIMARY KEY (project_id, owner_id, revision)
+);
