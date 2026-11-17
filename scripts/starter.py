@@ -15,7 +15,8 @@ from runtime_config import ROOT, apply_config
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("validate", "init", "run", "doctor", "embed", "serve", "search", "reindex"))
-    parser.add_argument("query", nargs="?", help="words to find (search only)")
+    # An option, not an optional positional: Python 3.11 argparse rejects that after other options.
+    parser.add_argument("--query", help="words to find (search only)")
     parser.add_argument("--limit", type=int, default=10, help="results to print (search only)")
     parser.add_argument("--config", required=True)
     parser.add_argument("--host", default="127.0.0.1")
@@ -56,7 +57,7 @@ def main() -> int:
         if args.command == "search":
             import search_index
             if not args.query or not args.query.strip() or not 1 <= args.limit <= 1000:
-                raise ValueError('search needs words to find and a limit of 1..1000, e.g. search "pricing decision"')
+                raise ValueError('search needs words to find (and a limit of 1..1000), e.g. brane.py search pricing decision')
             with closing(sqlite3.connect(db, timeout=30)) as conn:
                 rows = search_index.search(conn, args.query, limit=args.limit)
             for row in rows:

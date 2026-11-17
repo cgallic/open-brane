@@ -83,7 +83,7 @@ def main():
         return 0
     command = [str(python), str(ROOT / 'scripts/starter.py'), args.command, '--config', str(config)]
     if args.command == 'search':
-        command.extend([' '.join(args.query), '--limit', str(args.limit)])
+        command.extend(['--query', ' '.join(args.query), '--limit', str(args.limit)])
     if args.command == 'serve':
         command.extend(['--host', args.host, '--port', str(args.port)])
     return subprocess.call(command)
