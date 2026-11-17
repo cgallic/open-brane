@@ -47,7 +47,9 @@ def initialize(path, business):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config', 'demo'))
+    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config', 'demo', 'search', 'reindex'))
+    parser.add_argument('query', nargs='*', help='words to find, for the search command')
+    parser.add_argument('--limit', type=int, default=10, help='results to print, for the search command')
     parser.add_argument('--config', type=Path, default=ROOT / 'data/starter.json')
     parser.add_argument('--business', default='personal', help='deployment identifier for first setup')
     parser.add_argument('--host', default='127.0.0.1')
@@ -80,6 +82,8 @@ def main():
         print(json.dumps({'mcpServers': {'open-brane': {'command': str(python), 'args': [str(ROOT / 'scripts/starter.py'), 'run', '--config', str(config)]}}}, indent=2))
         return 0
     command = [str(python), str(ROOT / 'scripts/starter.py'), args.command, '--config', str(config)]
+    if args.command == 'search':
+        command.extend([' '.join(args.query), '--limit', str(args.limit)])
     if args.command == 'serve':
         command.extend(['--host', args.host, '--port', str(args.port)])
     return subprocess.call(command)

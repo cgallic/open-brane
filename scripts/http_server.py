@@ -29,7 +29,7 @@ def create_app(config_path):
     import mcp_server as brain
 
     async def home(request):
-        return HTMLResponse((Path(__file__).parent / 'ui.html').read_text(), headers={
+        return HTMLResponse((Path(__file__).parent / 'ui.html').read_text(encoding='utf-8'), headers={
             'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
             'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
             'Referrer-Policy': 'no-referrer',

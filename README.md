@@ -4,7 +4,7 @@
 
 Open Brane is a self-hosted event-log brain for keeping work across sessions and tools. Save notes, resume project checkpoints, open versioned documents, and find what happened without rebuilding context from scratch. Your browser opens to saved work and recent activity; customer follow-up tools are optional.
 
-One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Core recording and text search need no LLM or vector database. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
+One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Recording and ranked full-text search need no LLM, API key, or vector database: ask for `pricing decision` and get the notes that contain those words in any order, best match first. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
 
 **For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. Save session decisions, blockers, sources, and a next action in the browser or through `save_work_session`; `resume_work_session` brings that context back. Revision history and stale-save protection help keep overlapping sessions from losing work. See [Your workspace](docs/WORKSPACE.md) for the workflow and its limits.
 
@@ -50,11 +50,14 @@ The browser also includes optional **Customer follow-up tools** to look up conta
 
 For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
 
-Check your installation:
+Check your installation, and search from the terminal:
 
 ```bash
 python3 brane.py doctor
+python3 brane.py search pricing decision
 ```
+
+Agents get the same search through the `search_events` tool. Each result carries a short `snippet` and says whether every word matched, so an agent can skim twenty results without reading twenty payloads.
 
 See **[Self-hosting](docs/SELF-HOSTING.md)** for a VPS, HTTPS, backups, upgrades, token rotation, troubleshooting, and optional semantic search. The existing [starter guide](docs/STARTER.md) covers advanced configuration and provider contracts; existing `starter.py` commands remain supported.
 
@@ -80,6 +83,7 @@ open-brane/
 │   ├── crm.py                 ← event-backed contacts, deals, outreach checks
 │   ├── crm_providers.py       ← optional read-only external contact facts
 │   ├── query_events.py        ← filtered reader
+│   ├── search_index.py        ← ranked full-text search (SQLite FTS5, rebuildable)
 │   ├── embed_events.py        ← events → Qdrant (incremental, idempotent)
 │   ├── semantic_search.py     ← vector search + payload join
 │   ├── health_check.py        ← probe Ollama + Qdrant + events.db
@@ -120,7 +124,7 @@ Agents don't pass markdown to each other. They write events. They read events. T
 Store raw source data, compute derived metrics on read. Stripe's MRR calculation and yours will differ — that's fine. The events are raw. A definition layer query joins over them when someone asks. You never pre-compute and store a derived number that drifts from source.
 
 **3. Pipelines that break silently.**
-Adapters should use stable source identities and explicitly deduplicate retries. The canonical writer supports `--dedupe-key`; legacy writes without a key append again, and existing adapters do not all deduplicate. The vector embedder skips already indexed event IDs. `health_check.py --record` writes its own probe as an event, so you can query your uptime history from the same table.
+Adapters should use stable source identities and explicitly deduplicate retries. The canonical writer supports `--dedupe-key`; legacy writes without a key append again. The git and Claude session adapters pass one, so a scheduled re-run returns the existing events instead of appending copies. The vector embedder skips already indexed event IDs. `health_check.py --record` writes its own probe as an event, so you can query your uptime history from the same table.
 
 ## Design principles
 
@@ -129,7 +133,7 @@ Adapters should use stable source identities and explicitly deduplicate retries.
 - **Scripts are pure functions.** Read, compute, write, exit. No state machines, no background workers.
 - **Cron is the orchestrator.** If a script fails, the next tick retries. No queues, no DLQs.
 - **Owner-controlled access.** Use local stdio by default. The included HTTP server requires an owner Bearer token; business filters are not multi-user authentication.
-- **Views are rebuildable.** Obsidian pages, wiki pages, vector DB — all derived. Delete and rebuild anytime.
+- **Views are rebuildable.** Obsidian pages, wiki pages, the text-search index, vector DB — all derived. Delete and rebuild anytime.
 
 ## Stack
 

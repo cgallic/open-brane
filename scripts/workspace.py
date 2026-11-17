@@ -117,6 +117,12 @@ def read_document(artifact_id, revision=None):
     if row is None:
         raise FileNotFoundError('Saved document not found')
     path = Path(row[3]).resolve()
+    if not path.is_relative_to(artifact_root) or not path.is_file():
+        # The stored path is absolute. After a restore, a move, or a switch to
+        # Docker it points at the old location; the layout under the root is fixed.
+        moved = (artifact_root / row[0] / 'revisions' / f'{row[2]}.bin').resolve()
+        if moved.is_relative_to(artifact_root) and moved.is_file():
+            path = moved
     if not path.is_relative_to(artifact_root):
         raise ValueError('Saved document is outside the configured artifact root')
     raw = path.read_bytes()
@@ -128,7 +134,11 @@ def read_document(artifact_id, revision=None):
 
 def save_session(project_id, summary, next_action, expected_revision, connection_id,
                  decisions=None, blockers=None, event_ids=None, artifact_ids=None):
-    """Update explicit session facts, preserving other checkpoint fields. CAS is required."""
+    """Update explicit session facts, preserving other checkpoint fields. CAS is required.
+
+    An omitted (None) list keeps what the project already has; an explicit list,
+    including an empty one, replaces it.
+    """
     import customer_runtime as customer
     customer._connection(connection_id, write=True)
     if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
@@ -140,6 +150,7 @@ def save_session(project_id, summary, next_action, expected_revision, connection
         if values is not None and (not isinstance(values, list) or len(values) > 50 or
                 any(not isinstance(v, str) or not v.strip() or len(v) > 4000 for v in values)):
             raise ValueError('decisions and blockers must be lists of up to 50 nonempty strings')
+    keep_events, keep_documents = event_ids is None, artifact_ids is None
     event_ids = [] if event_ids is None else event_ids
     artifact_ids = [] if artifact_ids is None else artifact_ids
     if not isinstance(event_ids, list) or len(event_ids) > 50 or any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in event_ids):
@@ -164,9 +175,14 @@ def save_session(project_id, summary, next_action, expected_revision, connection
     for aid in dict.fromkeys(artifact_ids):
         doc = read_document(aid)
         documents.append({k: doc[k] for k in ('artifact_id', 'revision', 'sha256')})
+    saved = payload.get('session_sources')
+    saved = saved if isinstance(saved, dict) else {}
     payload.update(summary=summary.strip(), next_action=next_action.strip(),
-                   decisions=decisions or [], blockers=blockers or [],
-                   session_sources={'event_ids': list(dict.fromkeys(event_ids)), 'documents': documents})
+                   decisions=payload.get('decisions', []) if decisions is None else decisions,
+                   blockers=payload.get('blockers', []) if blockers is None else blockers,
+                   session_sources={
+                       'event_ids': saved.get('event_ids', []) if keep_events else list(dict.fromkeys(event_ids)),
+                       'documents': saved.get('documents', []) if keep_documents else documents})
     return customer.save_checkpoint(project_id, payload, connection_id, expected_revision, summary.strip())
 
 

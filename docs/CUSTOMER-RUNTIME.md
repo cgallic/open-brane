@@ -1,6 +1,6 @@
 # Portable customer runtime
 
-The starter now supports one isolated customer instance per configuration. Set `owner_id`, `public_origin`, and the `storage` paths in `starter.json`; `init` creates the event database plus a separate auth/artifact database and artifact root. Vector collection names are configured independently and lexical `search_events` remains available when vectors are disabled.
+The starter now supports one isolated customer instance per configuration. Set `owner_id`, `public_origin`, and the `storage` paths in `starter.json`; `init` creates the event database plus a separate auth/artifact database and artifact root. Vector collection names are configured independently and ranked full-text `search_events` remains available when vectors are disabled.
 
 Customer connections are created inside the instance and receive a server-generated `connection_id`. The runtime stamps that identity on connection-aware event writes, binds checkpoints to the configured owner, and rejects missing, revoked, read-only, or foreign connections. Provider credentials and personal Brain identities are not included.
 

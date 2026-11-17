@@ -49,10 +49,11 @@ SECRET_PATTERNS = [
     # AWS
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                              "AWS access key"),
     # GitHub PAT (classic + fine-grained)
-    (re.compile(r"\bghp_[A-Za-z0-9]{36,}\b"),                           "GitHub PAT (classic)"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),                      "GitHub token"),
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82,}\b"),                   "GitHub PAT (fine-grained)"),
     # OpenAI / Anthropic
     (re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),                            "OpenAI-style API key"),
+    (re.compile(r"\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}"),     "OpenAI project API key"),
     (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),                      "Anthropic API key"),
     # Stripe
     (re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b"),       "Stripe key"),
@@ -63,6 +64,17 @@ SECRET_PATTERNS = [
     # Linear, ClickUp, Vapi
     (re.compile(r"\blin_api_[A-Za-z0-9]{20,}\b"),                       "Linear API key"),
     (re.compile(r"\bpk_[A-Za-z0-9]{20,}\b"),                            "ClickUp/Vapi-style API key"),
+    # Private keys, signed tokens, and other providers with unmistakable prefixes
+    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----"),            "private key block"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "JWT (signed token)"),
+    (re.compile(r"\bwhsec_[A-Za-z0-9]{24,}\b"),                         "Stripe webhook secret"),
+    (re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}"),                         "GitLab token"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),                          "Google API key"),
+    (re.compile(r"\bxapp-[A-Za-z0-9-]{10,}\b"),                         "Slack app token"),
+    (re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"),                            "npm token"),
+    (re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),                            "Hugging Face token"),
+    (re.compile(r"\bsb_secret_[A-Za-z0-9_-]{20,}"),                     "Supabase secret key"),
+    (re.compile(r"\b[a-z][a-z0-9+]*://[^\s:/@]+:[^\s:/@]{8,}@[^\s/]+"),  "URL with an embedded password"),
     # Generic: JSON value that looks like a long secret on a "..key/token/secret.." field
     (re.compile(r'"(?:[a-z_-]*(?:secret|token|api[_-]?key|password|passphrase|private[_-]?key)[a-z_-]*)"\s*:\s*"([^"]{20,})"', re.IGNORECASE),
                                                                          "secret-looking key in JSON"),
@@ -153,9 +165,10 @@ def check(
                 msg = f"found {label} at payload.{field_path}"
                 if mode == "strict":
                     raise PolicyError(msg)
-                # sanitize: redact the match
-                redacted = pattern.sub(f"<REDACTED:{label}>", value)
-                _set_path(payload, field_path, redacted)
+                # sanitize: redact the match. Carry the redacted text forward, or a second
+                # pattern would substitute on the original and put the first secret back.
+                value = pattern.sub(f"<REDACTED:{label}>", value)
+                _set_path(payload, field_path, value)
                 warnings.append(msg + " (redacted)")
 
     # 4. Code-blob check (only if not a transcript source)

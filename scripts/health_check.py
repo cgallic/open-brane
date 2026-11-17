@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,17 +125,23 @@ def main():
     if args.record:
         import subprocess
         record = Path(__file__).resolve().parent / "record_event.py"
-        subprocess.run(
+        failing = [r.get("name") or r.get("url") or "target" for r in results if not r["healthy"]]
+        # record_event requires a summary; without one this probe was rejected and never stored.
+        out["summary"] = "health probe: all healthy" if all_healthy else "health probe: failing " + ", ".join(map(str, failing))
+        proc = subprocess.run(
             [
-                "python3", str(record),
+                sys.executable, str(record),
                 "--source", "health",
                 "--type", "probe",
                 "--ts", ts,
                 "--payload-stdin",
             ],
             input=json.dumps(out),
-            text=True,
+            text=True, capture_output=True,
         )
+        if proc.returncode != 0:
+            sys.stderr.write("health event was not recorded: " + proc.stderr.strip() + "\n")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

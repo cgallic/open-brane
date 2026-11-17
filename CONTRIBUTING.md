@@ -37,7 +37,7 @@ Good core changes:
 - Performance improvements that don't add abstractions
 - Bug fixes
 - Better error messages
-- Tests (there aren't any yet — PRs welcome)
+- Tests (`python -m unittest discover -s tests`; add one for every bug you fix)
 - Documentation improvements
 
 ## Style
@@ -46,7 +46,7 @@ Good core changes:
 - No classes where a function will do.
 - No logging framework — `print(..., file=sys.stderr)` is fine.
 - No YAML — JSON everywhere for config.
-- No pytest fixtures — stdlib `unittest` if tests are needed.
+- No pytest fixtures — stdlib `unittest`.
 
 ## Questions
 

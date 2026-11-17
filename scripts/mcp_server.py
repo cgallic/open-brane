@@ -12,7 +12,7 @@ Tools exposed:
 - report_usage      — close the recall-trace feedback loop (recall_traces schema)
 - propose_edge      — propose a typed reasoning edge (edges schema)
 - health_check      — probe infrastructure
-- search_events     — literal text search without a vector service
+- search_events     — ranked full-text search, no model or vector service
 - check_outreach / outreach_history / find_contact / log_outreach — CRM contact context
 - upsert_contact / upsert_deal / get_pipeline — event-backed CRM snapshots
 
@@ -32,6 +32,7 @@ from pathlib import Path
 from mcp.server import FastMCP
 import customer_runtime as customer
 import artifacts
+import search_index
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BRAIN_ROOT = Path(os.environ.get("BRAIN_ROOT", SCRIPT_DIR.parent))
@@ -161,7 +162,11 @@ def semantic_search(
     agent: str | None = None,
     session_id: str | None = None,
 ) -> dict:
-    """Natural-language search over events via vector similarity.
+    """Natural-language search over events via vector similarity. Optional backend.
+
+    If the result has status "backend_unavailable", vector search is not set up
+    on this install (the default). Call search_events with the same query instead;
+    it needs no model and is always available.
 
     Returns {"trace_id": int|None, "results": [{...hit}, ...]}.
     If schemas/recall_traces.sql is applied, a trace row is written and
@@ -170,7 +175,7 @@ def semantic_search(
     trace_id is null and behavior matches the pre-trace version.
     """
     if os.environ.get("BRAIN_VECTORS_ENABLED", "true").lower() == "false":
-        return {"status": "backend_unavailable", "error": "Vector search is disabled in deployment config", "trace_id": None, "results": []}
+        return {"status": "backend_unavailable", "error": "Vector search is disabled in deployment config", "hint": "Call search_events with the same query; it needs no vector service.", "trace_id": None, "results": []}
     if not 1 <= limit <= 1000:
         raise ValueError("limit must be between 1 and 1000")
     args = [
@@ -412,21 +417,29 @@ def health_check() -> dict:
 
 @mcp.tool()
 def search_events(query: str, source: str | None = None, type: str | None = None,
-                  limit: int = 50, offset: int = 0) -> list[dict]:
-    """Literal text search over event summaries and payloads; no vector service needed."""
+                  limit: int = 20, offset: int = 0, since: str | None = None,
+                  until: str | None = None) -> list[dict]:
+    """Find events by their text. Works on every install: no model, API key, or vector service.
+
+    Words can be in any order and are stemmed ("decisions" finds "decision"); put
+    an exact phrase in double quotes. Results are ranked best match first, with
+    summary matches above matches elsewhere in the payload. Each result has:
+      match   - "all_terms" (every word found), "any_term" (no event had every
+                word, so these have at least one), or "literal" (no word matched,
+                so this is a plain substring match, newest first)
+      snippet - a short excerpt around the match, for skimming before reading payload
+    An empty list means nothing matched; try fewer or different words.
+
+    Args:
+        query: words or a quoted phrase, e.g. pricing decision "kai backup"
+        source, type: optional exact filters, e.g. source="git", type="commit"
+        since, until: optional ISO 8601 bounds on the event time
+        limit: 1..1000 (default 20); offset: skip this many results for the next page
+    """
     if not query.strip() or not 1 <= limit <= 1000 or offset < 0:
         raise ValueError("provide a query, limit 1..1000, and nonnegative offset")
-    where = ["payload_json LIKE ? ESCAPE '\\'"]
-    literal = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    params = [f"%{literal}%"]
-    for column, value in (("source", source), ("type", type)):
-        if value:
-            where.append(f"{column} = ?")
-            params.append(value)
-    params.extend([limit, offset])
-    with closing(sqlite3.connect(DB)) as conn:
-        rows = conn.execute("SELECT id, ts, source, type, actor, payload_json, attachment_uri, ingested_at FROM events WHERE " + " AND ".join(where) + " ORDER BY id DESC LIMIT ? OFFSET ?", params).fetchall()
-    return [dict(id=r[0], ts=r[1], source=r[2], type=r[3], actor=r[4], payload=json.loads(r[5]), attachment_uri=r[6], ingested_at=r[7]) for r in rows]
+    with closing(sqlite3.connect(DB, timeout=30)) as conn:
+        return search_index.search(conn, query, source, type, since, until, limit, offset)
 
 
 @mcp.tool()
@@ -531,7 +544,12 @@ def save_work_session(project_id: str, summary: str, next_action: str, expected_
                       connection_id: str, decisions: list[str] | None = None,
                       blockers: list[str] | None = None, event_ids: list[int] | None = None,
                       artifact_ids: list[str] | None = None) -> dict:
-    """Save explicit session facts and source references. Use revision 0 to create; otherwise resume first."""
+    """Save explicit session facts and source references. Use revision 0 to create; otherwise resume first.
+
+    connection_id comes from create_connection (call it once and reuse the id).
+    Leave decisions, blockers, event_ids or artifact_ids out to keep what the
+    project already has; pass a list, including an empty one, to replace it.
+    """
     import workspace
     return workspace.save_session(project_id, summary, next_action, expected_revision,
                                   connection_id, decisions, blockers, event_ids, artifact_ids)

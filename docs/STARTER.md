@@ -79,7 +79,7 @@ Optional inherited CRM settings are `CRM_CONTACT_TTL_HOURS` (default 2) and `CRM
 
 ## Brain and CRM tools
 
-The existing tools remain available: `record_event`, `query_events`, `semantic_search`, `report_usage`, `propose_edge`, and `health_check`. `search_events` adds literal text search over event payloads without a vector service. A disabled or failing semantic backend returns `status: backend_unavailable`; inspect that status instead of treating an empty result list as a successful search. With vectors disabled, the MCP `health_check` tool checks the event log and reports `scope: core`; starter `doctor` also runs a SQLite integrity check. Neither verifies CRM contact facts.
+The existing tools remain available: `record_event`, `query_events`, `semantic_search`, `report_usage`, `propose_edge`, and `health_check`. `search_events` adds ranked full-text search over event payloads without a vector service: words in any order, stemming, quoted phrases, `source`/`type`/`since`/`until` filters, and a `snippet` and `match` field on every result. It falls back to a literal substring match when no indexed word matches. A disabled or failing semantic backend returns `status: backend_unavailable`; inspect that status instead of treating an empty result list as a successful search. With vectors disabled, the MCP `health_check` tool checks the event log and reports `scope: core`; starter `doctor` also runs a SQLite integrity check. Neither verifies CRM contact facts.
 
 | CRM tool | Behavior |
 |---|---|

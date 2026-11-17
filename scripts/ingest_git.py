@@ -63,9 +63,10 @@ def git_log(repo_path: Path, since_days: int) -> list[dict]:
 
 def record(ts: str, actor: str, payload: dict) -> bool:
     proc = subprocess.run(
-        ["python3", str(RECORD),
+        [sys.executable, str(RECORD),
          "--source", "git", "--type", "commit",
-         "--actor", actor, "--ts", ts, "--payload-stdin"],
+         "--actor", actor, "--ts", ts, "--payload-stdin",
+         "--dedupe-key", actor],
         input=json.dumps(payload), capture_output=True, text=True,
     )
     return proc.returncode == 0

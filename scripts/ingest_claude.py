@@ -73,9 +73,10 @@ def summarise_session(path: Path, lines: list[str]) -> dict:
 
 def record(source_ts: str, actor: str, payload: dict) -> bool:
     proc = subprocess.run(
-        ["python3", str(RECORD),
+        [sys.executable, str(RECORD),
          "--source", "claude", "--type", "session",
-         "--actor", actor, "--ts", source_ts, "--payload-stdin"],
+         "--actor", actor, "--ts", source_ts, "--payload-stdin",
+         "--dedupe-key", actor],
         input=json.dumps(payload), capture_output=True, text=True,
     )
     return proc.returncode == 0
