@@ -59,7 +59,10 @@ class StarterTests(unittest.TestCase):
     def test_embedding_dimensions_reject_existing_incompatible_collection(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
-        import embed_events
+        try:
+            import embed_events
+        except ModuleNotFoundError:
+            self.skipTest("vector client not installed (core install); pip install -r requirements.txt")
         client = Mock()
         client.get_collections.return_value = SimpleNamespace(collections=[SimpleNamespace(name=embed_events.COLLECTION)])
         client.get_collection.return_value = SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=384))))

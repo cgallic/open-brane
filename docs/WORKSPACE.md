@@ -6,7 +6,7 @@ After setup, start `python3 brane.py serve` and unlock the browser. The home scr
 
 - Saved project checkpoints, most recently updated first. A saved `summary` or `goal` appears when present. A `next_action` appears only if that string was explicitly stored in the checkpoint payload.
 - Saved documents, with their current revisions. Open a document to read its content; the server checks its hash before returning it.
-- Quick note capture, literal text search, and recent events across sources.
+- Quick note capture, ranked text search, and recent events across sources.
 - Customer follow-up tools inside a collapsed optional section.
 
 Open a project or document and use **Copy context** to bring the saved content into another session. Nothing is sent to another service by that button. If the browser blocks clipboard access, select and copy the displayed text manually. Use Refresh saved work to pick up new checkpoints and documents saved by agents.
@@ -38,7 +38,7 @@ The event log and workspace sidecar are read in separate transactions; this is n
 
 ## Save → resume → continue
 
-Use **Save a session** in the browser to create a project. Record what changed, a next action, decisions, and blockers. Source event IDs and document IDs are optional; they must exist in this deployment. Open an existing project first to update it. Other checkpoint fields (including custom agent context) are retained. Saving replaces the session fields and source list with the supplied values.
+Use **Save a session** in the browser to create a project. Record what changed, a next action, decisions, and blockers. Source event IDs and document IDs are optional; they must exist in this deployment. Open an existing project first to update it. Other checkpoint fields (including custom agent context) are retained. The browser form saves every field it shows, so clearing a box clears that field.
 
 A save uses the revision you opened. If another session updates the project first, the browser reports a conflict and keeps your draft. Copy the draft before reopening the project, compare it with the latest saved context, then reconcile and save. Drafts are held in tab memory and cleared by locking or reloading. They are not automatically backed up.
 
@@ -46,7 +46,7 @@ Connected agents use the same workflow:
 
 1. `resume_work_session(project_id)` returns the saved payload, current revision, source event summaries, document revision references, and warnings. Explicit decisions, blockers, and next action are in `payload`; the server does not infer completion.
 2. Continue the work using the original tools. Read referenced events with the event tools, and use `read_saved_document(artifact_id, revision)` for the exact saved source version.
-3. `save_work_session(project_id, summary, next_action, expected_revision, connection_id, decisions=[], blockers=[], event_ids=[], artifact_ids=[])` saves a new revision. Use `expected_revision=0` only for a new project. For existing projects, use the revision returned by resume. Supply the full source list you want retained.
+3. `save_work_session(project_id, summary, next_action, expected_revision, connection_id, decisions=[], blockers=[], event_ids=[], artifact_ids=[])` saves a new revision. Use `expected_revision=0` only for a new project. For existing projects, use the revision returned by resume. Leave `decisions`, `blockers`, `event_ids`, or `artifact_ids` out to keep what the project already has; pass a list (an empty one clears it) to replace it.
 
 Documents are pinned to their revision and SHA-256 at save time. Resume flags newer document versions and missing or corrupt references. Event summaries are limited to 2,000 characters; they are saved observations, not independently verified evidence. Document content is read separately, keeping the handoff packet smaller. Each session supports up to 50 event references and 20 documents. References apply to this deployment, not portable IDs across installations.
 

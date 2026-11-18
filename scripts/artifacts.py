@@ -15,6 +15,15 @@ def _safe(slug):
     if path.parent != ROOT: raise ValueError("artifact path escapes customer root")
     return path
 
+STALE_LOCK_SECONDS = 60  # a write holds the lock for milliseconds
+
+def _revision_path(stored, slug, revision):
+    """Stored paths are absolute; after the data directory moves, use the fixed layout under ROOT."""
+    path = Path(stored).resolve()
+    if path.is_file() and path.is_relative_to(ROOT): return path
+    moved = (ROOT / slug / "revisions" / f"{revision}.bin").resolve()
+    return moved if moved.is_file() and moved.is_relative_to(ROOT) else path
+
 @contextmanager
 def _lock(path):
     path.mkdir(parents=True, exist_ok=True); lock = path / ".lock"
@@ -24,6 +33,11 @@ def _lock(path):
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd); break
         except FileExistsError:
+            try:
+                # A process killed mid-write leaves its lock behind; without this the document is stuck for good.
+                # Two waiters breaking the same stale lock at the same instant is the remaining (narrow) race.
+                if time.time() - lock.stat().st_mtime > STALE_LOCK_SECONDS: lock.unlink()
+            except FileNotFoundError: pass
             if time.monotonic() - started > 10: raise TimeoutError("artifact is busy")
             time.sleep(.01)
     try: yield
@@ -79,7 +93,7 @@ def read(artifact_id, connection_id):
     auth = _connection(connection_id); 
     with _managed_db() as c:
         a = _get(c, artifact_id); r = c.execute("SELECT revision_id,sha256,byte_length,path,provenance_json,created_at,connection_id FROM artifact_revisions WHERE artifact_id=? AND revision_id=?", (artifact_id,a[3])).fetchone()
-    raw = Path(r[3]).resolve().read_bytes(); return {"artifact_id": a[0], "slug": a[1], "format": a[2], "revision": r[0], "content": raw.decode("utf-8"), "sha256": r[1], "byte_length": r[2], "provenance": json.loads(r[4]), "created_at": r[5], "connection_id": auth["connection_id"]}
+    raw = _revision_path(r[3], a[1], r[0]).read_bytes(); return {"artifact_id": a[0], "slug": a[1], "format": a[2], "revision": r[0], "content": raw.decode("utf-8"), "sha256": r[1], "byte_length": r[2], "provenance": json.loads(r[4]), "created_at": r[5], "connection_id": auth["connection_id"]}
 
 def edit(artifact_id, content, expected_revision, connection_id, provenance=None):
     auth = _connection(connection_id, write=True); raw = _bytes(content)
@@ -103,7 +117,7 @@ def restore(artifact_id, revision, expected_revision, connection_id):
     with _managed_db() as c:
         a=_get(c,artifact_id); row=c.execute("SELECT path FROM artifact_revisions WHERE artifact_id=? AND revision_id=?",(artifact_id,revision)).fetchone()
     if not row: raise FileNotFoundError("revision not found")
-    return edit(artifact_id, Path(row[0]).resolve().read_bytes(), expected_revision, connection_id, {"restored_from":revision})
+    return edit(artifact_id, _revision_path(row[0], a[1], revision).read_bytes(), expected_revision, connection_id, {"restored_from":revision})
 
 def export(artifact_id, connection_id):
     result=read(artifact_id,connection_id); result["export_bytes"]=result.pop("content").encode("utf-8"); return result
