@@ -148,7 +148,7 @@ Tools exposed (names match Python functions in `mcp_server.py`):
 | Events | `record_event` (the write API), `query_events`, `search_events` (ranked full-text, no model), `semantic_search` (optional vectors), `health_check` |
 | Recall feedback | `report_usage`, `propose_edge` (need the recall-trace and edges schemas) |
 | Workspace | `workspace_overview`, `read_saved_project`, `read_saved_document`, `save_work_session`, `resume_work_session` |
-| Role task board | `post_task`, `claim_task`, `settle_task`, `list_tasks`, `role_brief` (see `docs/ROLES.md`) |
+| Role task board | `post_task`, `claim_task`, `renew_claim`, `settle_task`, `verify_task`, `list_tasks`, `role_brief` (see `docs/ROLES.md`) |
 | Checkpoints and documents | `create_connection`, `revoke_connection`, `save_project_checkpoint`, `project_checkpoint_history`, `restore_project_checkpoint`, `resume_project_checkpoint`, `create_artifact`, `read_artifact`, `edit_artifact`, `artifact_history`, `restore_artifact`, `export_artifact` |
 | Optional CRM | `check_outreach`, `outreach_history`, `find_contact`, `log_outreach`, `customer_context`, `upsert_contact`, `upsert_deal`, `get_pipeline` |
 

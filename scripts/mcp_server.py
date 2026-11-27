@@ -15,7 +15,7 @@ Tools exposed:
 - search_events     — ranked full-text search, no model or vector service
 - check_outreach / outreach_history / find_contact / log_outreach — CRM contact context
 - upsert_contact / upsert_deal / get_pipeline — event-backed CRM snapshots
-- post_task / claim_task / settle_task / list_tasks / role_brief — hand work between agents by role
+- post_task / claim_task / renew_claim / settle_task / verify_task / list_tasks / role_brief — hand work between agents by role
 
 Use brane.py serve for authenticated Streamable HTTP and the browser UI.
 
@@ -519,25 +519,33 @@ def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
 @mcp.tool()
 def post_task(role: str, title: str, brief: str, done_when: str, posted_by: str | None = None,
               project_id: str | None = None, depends_on: list[str] | None = None,
-              context_event_ids: list[int] | None = None, request_id: str | None = None) -> dict:
+              context_event_ids: list[int] | None = None, request_id: str | None = None,
+              followup_to: str | None = None, require_verified: bool = False,
+              never: list[str] | None = None) -> dict:
     """Post a task for a role (for example research, build, review, writer).
 
     brief says what to do; done_when says what finished looks like. project_id links a
     saved project so the claiming agent gets its next action. depends_on lists task ids
     that must be done first; their outcomes are handed to the claiming agent. Pass a
     request_id to make a retried post return the same task instead of a duplicate.
+    followup_to names a blocked, failed or rejected task this one replaces; tasks that
+    depended on it then wait on this one. require_verified=True makes this task wait
+    until upstream tasks are verified by another agent, not just settled. never lists
+    actions the claiming agent must not take (shown in its briefing).
     """
     import tasks
     return tasks.post_task(role, title, brief, done_when, posted_by, project_id, depends_on,
-                           context_event_ids, request_id)
+                           context_event_ids, request_id, followup_to, require_verified, never)
 
 
 @mcp.tool()
 def claim_task(role: str, agent: str, lease_minutes: int = 120, task_id: str | None = None) -> dict:
     """Claim the oldest open task for your role and get a briefing to start from.
 
-    The briefing holds the role's recent outcomes, results of the tasks this one
-    depends on, linked context events and the linked project's saved next action.
+    The briefing holds already_known (saved notes and results that match this task's
+    title: read them before redoing work), the role's recent outcomes, results of the
+    tasks this one depends on, linked context events, the never list, and the linked
+    project's saved next action.
     The claim lasts lease_minutes; after that the task can be claimed by another
     agent. Returns task=None when the role has nothing ready.
     """
@@ -547,19 +555,39 @@ def claim_task(role: str, agent: str, lease_minutes: int = 120, task_id: str | N
 
 @mcp.tool()
 def settle_task(task_id: str, claim_id: str, agent: str, status: str, outcome: str,
-                proof: list[str] | None = None) -> dict:
+                proof: list[str] | None = None, lesson: dict | None = None) -> dict:
     """Finish a claimed task: status done, blocked or failed.
 
-    done requires at least one proof item (URL, commit, file path, event id).
-    For blocked or failed, say in outcome exactly what is missing.
+    done requires at least one checkable proof item: a URL, event:<id> that exists,
+    a commit hash, or a file path / PR ref. For blocked or failed, say in outcome
+    exactly what is missing. lesson is optional: {pattern, change, metric?, before?,
+    after?} describing what this task taught; it is shown to the next agent in the role.
     """
     import tasks
-    return tasks.settle_task(task_id, claim_id, agent, status, outcome, proof)
+    return tasks.settle_task(task_id, claim_id, agent, status, outcome, proof, lesson)
+
+
+@mcp.tool()
+def renew_claim(task_id: str, claim_id: str, agent: str, lease_minutes: int = 120) -> dict:
+    """Extend your live claim on a long task so it is not handed to another agent."""
+    import tasks
+    return tasks.renew_claim(task_id, claim_id, agent, lease_minutes)
+
+
+@mcp.tool()
+def verify_task(task_id: str, agent: str, verdict: str, note: str) -> dict:
+    """Check another agent's done task against its done_when and proof.
+
+    verdict is verified or rejected; the settling agent cannot verify its own task.
+    A rejected task can be replaced with post_task(followup_to=task_id).
+    """
+    import tasks
+    return tasks.verify_task(task_id, agent, verdict, note)
 
 
 @mcp.tool()
 def list_tasks(role: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
-    """Read the task board. status: open, waiting, claimed, done, blocked or failed."""
+    """Read the task board. status: open, waiting, stuck, claimed, done, blocked, failed or rejected."""
     import tasks
     return tasks.list_tasks(role, status, limit)
 

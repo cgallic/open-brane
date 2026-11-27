@@ -9,7 +9,8 @@
 
 - **Agents forget everything between sessions.** Open Brane saves notes, decisions, project checkpoints, and a saved next action, so the next session (or the next agent) resumes from what was written down.
 - **Context is scattered across tools.** Claude Code, Cursor, Codex, and your own scripts read and write the same store through MCP, and you can browse it in a local web page.
-- **Vector-database memory stacks need a model, an embedding key, and a second service.** Open Brane is one SQLite file with ranked full-text search (FTS5) built in. Semantic search is optional.
+- **Agents report "done" with nothing to check.** Open Brane's role task board refuses done without checkable proof and lets a second agent verify before dependent work starts.
+- **Most memory stacks add an embedding model or a second service.** Open Brane is one SQLite file with ranked full-text search (FTS5) built in. Semantic search is optional.
 
 <p align="center"><img src="docs/assets/ui.png" alt="Open Brane browser UI showing a saved project with its next action and ranked search results for the word docs" width="640"></p>
 
@@ -114,13 +115,15 @@ Checkpoints and documents keep revision history and can be restored as a new rev
 Post a task for a role, and whichever agent works that role claims it with the context it needs to start.
 
 - `post_task`: post a task for a role such as `research` or `build`, with a brief, a `done_when` line, an optional `project_id`, and optional `depends_on` task ids.
-- `claim_task`: an agent claims the next open task for its role. It gets the brief plus a briefing: the role's recent settled outcomes, the results of the tasks this one depends on, and the linked project's saved next action. Claims expire after a lease, so a crashed agent does not block the work.
-- `settle_task`: `done` needs at least one proof item, such as a URL, commit, or event id. `blocked` and `failed` need a reason.
-- `list_tasks` reads the board, and `role_brief` shows a role's queue, active claims, and recent results.
+- `claim_task`: an agent claims the next open task for its role. It gets the brief plus a briefing: saved notes that already match the task (so known work is not redone), the role's recent outcomes, the results of the tasks this one depends on, and the linked project's saved next action. Claims expire after a lease, so a crashed agent does not block the work.
+- `settle_task`: `done` needs checkable proof: a URL, a commit, a file path, or an `event:<id>` that exists. Free text is refused. `blocked` and `failed` need a reason. An optional lesson is shown to the next agent in the role.
+- `verify_task`: a different agent checks the result and marks it verified or rejected. Work posted with `require_verified` waits for that check.
+- When an upstream task is blocked or rejected, the tasks after it show as `stuck` instead of waiting silently, and a follow-up task (`followup_to`) takes its place.
+- `list_tasks` reads the board, `role_brief` shows a role's queue, stuck work, results awaiting verification and recent lessons, and `renew_claim` extends a long job's lease.
 
-Example: a planner posts `research: compare three hosting options, done_when: a table with prices and links`, then posts a `build` task that `depends_on` it. A research agent claims the first task, settles it as done with the URL of its notes, and the build agent's claim now includes that outcome. `python3 brane.py tasks` prints the board from the terminal.
+Example: a planner posts `research: compare three hosting options, done_when: a table with prices and links`, then posts a `build` task that `depends_on` it with `require_verified`. A research agent claims the first task and settles it with the URL of its notes, a review agent verifies it, and the build agent's claim now includes that verified outcome. `python3 brane.py tasks` prints the board from the terminal.
 
-Run `python3 brane.py demo roles` to watch three scripted clients do this with temporary data. Every post, claim, and settlement is an append-only event, so the board can be rebuilt from the log and searched like any other note. The browser shows the same board read-only. See [docs/ROLES.md](docs/ROLES.md).
+After setup, run `python3 brane.py demo roles` to watch three scripted clients do this with temporary data. Every post, claim, and settlement is an append-only event, so the board can be rebuilt from the log and searched like any other note. The browser shows the same board read-only. See [docs/ROLES.md](docs/ROLES.md).
 
 ## How it compares
 
@@ -128,7 +131,7 @@ Run `python3 brane.py demo roles` to watch three scripted clients do this with t
 |---|---|---|---|
 | Needs an API key or model | No (semantic search optional) | Usually, for embeddings and extraction | No |
 | Storage | One SQLite file you own | The provider's database, or a vector DB you run | Files in your repo |
-| Multi-agent handoff | Role task board with claims, leases, and proof | Shared memory, task handoff varies | Manual, by editing files |
+| Multi-agent handoff | Role task board with claims, leases, checkable proof, and second-agent verification | Shared memory, task handoff varies | Manual, by editing files |
 | Audit trail | Append-only event log, revision history | Varies by service | Git history, if committed |
 | Self-hosted | Yes, local or Docker | Some offer a self-hosted edition | Yes |
 | Search | Ranked full-text (FTS5), optional vectors | Semantic similarity | grep, or the agent reads the files |

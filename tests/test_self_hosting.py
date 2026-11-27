@@ -231,6 +231,8 @@ class SelfHostingTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('settling as done without proof: refused', proc.stdout)
+        self.assertIn('researcher tried to verify its own work: refused', proc.stdout)
+        self.assertIn('verified by lead', proc.stdout)
         self.assertIn('board: build=claimed, research=done', proc.stdout)
 
     def test_task_posted_over_http_mcp_shows_on_the_authenticated_board(self):

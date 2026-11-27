@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Three scripted MCP clients hand work along by role. No LLM, no network, temporary data.
 
-A lead posts a research task and a build task that depends on it. The research
-client claims, settles with proof, and the build client then receives that
-result in its briefing. The script also shows that the build task cannot be
-claimed early and that "done" without proof is refused.
+A lead posts a research task and a build task that depends on it and requires
+verification. The research client claims, settles with proof, the lead verifies
+the result, and the build client then receives it in its briefing. The script
+also shows that the build task cannot be claimed early, that "done" without
+checkable proof is refused, and that the settling agent cannot verify itself.
 """
 import asyncio
 from contextlib import AsyncExitStack
@@ -60,7 +61,7 @@ async def demo():
                                title='Add answers to the setup guide',
                                brief='Answer each question from the research task in docs/SETUP.md.',
                                done_when='A commit that adds the five answers.',
-                               depends_on=[research['task_id']])
+                               depends_on=[research['task_id']], require_verified=True)
             print(f"lead posted {research['task_id']} for research and {build['task_id']} for build")
 
             early = await call(builder, 'claim_task', role='build', agent='builder')
@@ -83,11 +84,27 @@ async def demo():
                        proof=[f"event:{note['event_id']}"])
             print(f"researcher settled done with proof event:{note['event_id']}")
 
+            waiting = await call(builder, 'claim_task', role='build', agent='builder')
+            assert waiting['task'] is None
+            print('builder asked again: research is done but not yet verified, so still waiting')
+            try:
+                await call(researcher, 'verify_task', task_id=got['task']['task_id'], agent='researcher',
+                           verdict='verified', note='Mine')
+                raise AssertionError('self-verification was accepted')
+            except RuntimeError:
+                print('researcher tried to verify its own work: refused')
+            await call(lead, 'verify_task', task_id=got['task']['task_id'], agent='lead', verdict='verified',
+                       note='Five questions, each with a source.')
+            print('lead verified the research result')
+
             handed = await call(builder, 'claim_task', role='build', agent='builder')
             upstream = handed['briefing']['upstream_results'][0]
             assert upstream['proof'] == [f"event:{note['event_id']}"]
+            assert upstream['verification']['agent'] == 'lead'
             print(f"builder claimed {handed['task']['task_id']} and received: \"{upstream['outcome']}\" "
-                  f"(proof {upstream['proof'][0]})")
+                  f"(proof {upstream['proof'][0]}, verified by lead)")
+            known = handed['briefing']['already_known']
+            print(f"builder's briefing also lists {len(known)} saved note(s) already matching its task title")
 
             board = await call(lead, 'list_tasks')
             print('board: ' + ', '.join(f"{t['role']}={t['status']}" for t in board))
