@@ -1,29 +1,52 @@
 # Open Brane
 
-**Your projects, research, and decisions, available to every connected agent.**
+<!-- mcp-name: io.github.cgallic/open-brane -->
 
-Open Brane is a self-hosted event-log brain for keeping work across sessions and tools. Save notes, resume project checkpoints, open versioned documents, and find what happened without rebuilding context from scratch. Your browser opens to saved work and recent activity; customer follow-up tools are optional.
+**Self-hosted memory and task handoff for AI agents: one SQLite file, any MCP client, no API key.**
 
-One SQLite event store, owner-controlled storage, authenticated HTTP, and MCP. Recording and ranked full-text search need no LLM, API key, or vector database: ask for `pricing decision` and get the notes that contain those words in any order, best match first. Existing ingestion, research, governance, CRM, checkpoints, and document tools remain available.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20%2B%20HTTP-ff4d17.svg)](https://modelcontextprotocol.io)
+[![Tests](https://github.com/cgallic/open-brane/actions/workflows/test.yml/badge.svg)](https://github.com/cgallic/open-brane/actions/workflows/test.yml)
 
-**For everyday use:** open a saved project, read its explicitly saved next action, or copy its context into another session. Agents can call `workspace_overview`, `read_saved_project`, and `read_saved_document` to find the same work. Save session decisions, blockers, sources, and a next action in the browser or through `save_work_session`; `resume_work_session` brings that context back. Revision history and stale-save protection help keep overlapping sessions from losing work. See [Your workspace](docs/WORKSPACE.md) for the workflow and its limits.
+- **Agents forget everything between sessions.** Open Brane saves notes, decisions, project checkpoints, and a saved next action, so the next session (or the next agent) resumes from what was written down.
+- **Context is scattered across tools.** Claude Code, Cursor, Codex, and your own scripts read and write the same store through MCP, and you can browse it in a local web page.
+- **Agents report "done" with nothing to check.** Open Brane's role task board refuses done without checkable proof and lets a second agent verify before dependent work starts.
+- **Most memory stacks add an embedding model or a second service.** Open Brane is one SQLite file with ranked full-text search (FTS5) built in. Semantic search is optional.
 
-**Customer workflow example:** after [setup](#quickstart), run `python3 brane.py demo`. Two scripted MCP clients share a call summary, check recent outreach and stale contact facts, and reject a stale document edit. This optional demo uses temporary synthetic data and sends nothing. See the [customer handoff guide](docs/CUSTOMER-HANDOFF.md).
+<p align="center"><img src="docs/assets/ui.png" alt="Open Brane browser UI showing a saved project with its next action and ranked search results for the word docs" width="640"></p>
 
-## Quickstart
+## Try it in 60 seconds
 
-**Python 3.11+ and Git are the only prerequisites.** No model, API key, Ollama, or Qdrant is needed for notes, text search, CRM, or MCP.
+You need Python 3.11+ and Git. No model, API key, Ollama, or Qdrant.
 
 ```bash
 git clone https://github.com/cgallic/open-brane.git
 cd open-brane
-python3 brane.py setup
-python3 brane.py serve
+python3 brane.py setup      # creates .venv, installs core deps, writes a private token, creates the database
+python3 brane.py serve      # http://127.0.0.1:7778
 ```
 
-Open **http://127.0.0.1:7778**, paste the token from `data/http-token`, and start saving and searching notes. Setup creates the virtual environment, installs the core dependencies, generates a private access token, and initializes your database. Running setup again preserves your configuration, token, and events.
+Open **http://127.0.0.1:7778**, paste the token from `data/http-token`, save a note, and search for it. Running setup again keeps your configuration, token, and events. On Windows, use `py -3.11` in place of `python3`; no environment activation is needed.
 
-On Windows, replace `python3` with `py -3.11`. No environment activation is required.
+From the terminal:
+
+```bash
+python3 brane.py doctor
+python3 brane.py search pricing decision
+```
+
+Words can appear in any order and the best match comes first. Put an exact phrase in quotes.
+
+### Install as a command
+
+With [uv](https://docs.astral.sh/uv/) or pipx, no clone is needed. Data goes to `~/.open-brane` (set `OPEN_BRANE_HOME` to move it), and the first run creates it.
+
+```bash
+uvx open-brane serve          # or: pipx install open-brane && open-brane serve
+```
+
+As a stdio MCP server, the client config is `{"command": "uvx", "args": ["open-brane", "run"]}`. Every `brane.py` command works the same way, for example `uvx open-brane tasks` or `uvx open-brane demo roles`.
 
 ### Docker
 
@@ -36,38 +59,164 @@ docker compose -f compose.json up --build -d --wait
 docker compose -f compose.json exec brane cat /data/http-token
 ```
 
-Open **http://127.0.0.1:7778** and paste that token. The container runs as a non-root user; its named volume preserves your database, credentials, checkpoints, and artifacts. Only localhost is published by default. JSON is used for the Compose configuration.
+Open **http://127.0.0.1:7778** and paste that token. The container runs as a non-root user, a named volume keeps your database, credentials, checkpoints, and artifacts, and only localhost is published by default.
 
-### Connect an agent
+## Connect Claude Code, Cursor, or Codex
 
-For a local stdio MCP client, generate ready-to-paste configuration with absolute paths:
+Open Brane speaks MCP two ways. Both expose the same tools and the same database.
+
+**Local stdio.** Print a ready-to-paste config with absolute paths:
 
 ```bash
 python3 brane.py mcp-config
 ```
 
-The browser also includes optional **Customer follow-up tools** to look up contact facts, interaction history, and follow-up checks. Connect your existing workflow through the [authenticated customer API](docs/CUSTOMER-HANDOFF.md).
+It prints this shape (your paths will differ):
 
-For an HTTP MCP client that supports Bearer headers, use `http://127.0.0.1:7778/mcp` with `Authorization: Bearer YOUR_ACCESS_TOKEN`. This is Streamable HTTP, not the older SSE proxy. Both interfaces expose the same tools and database. The HTTP token grants full owner access; separate trust boundaries need separate deployments. This is not an OAuth login flow.
-
-Check your installation, and search from the terminal:
-
-```bash
-python3 brane.py doctor
-python3 brane.py search pricing decision
+```json
+{
+  "mcpServers": {
+    "open-brane": {
+      "command": "/path/to/open-brane/.venv/bin/python",
+      "args": ["/path/to/open-brane/scripts/starter.py", "run", "--config", "/path/to/open-brane/data/starter.json"]
+    }
+  }
+}
 ```
 
-Agents get the same search through the `search_events` tool. Each result carries a short `snippet` and says whether every word matched, so an agent can skim twenty results without reading twenty payloads.
+- **Cursor:** paste that `mcpServers` block into `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project).
+- **Claude Code:** pass the same command after `--`:
 
-See **[Self-hosting](docs/SELF-HOSTING.md)** for a VPS, HTTPS, backups, upgrades, token rotation, troubleshooting, and optional semantic search. The existing [starter guide](docs/STARTER.md) covers advanced configuration and provider contracts; existing `starter.py` commands remain supported.
+  ```bash
+  claude mcp add open-brane -- /path/to/open-brane/.venv/bin/python \
+    /path/to/open-brane/scripts/starter.py run --config /path/to/open-brane/data/starter.json
+  ```
 
-## The idea in one paragraph
+- **Codex:** add the same command and args to `~/.codex/config.toml`:
 
-Every source you care about gets normalized into **one append-only SQLite table called `events`**. That table is the source of truth. Everything downstream — Obsidian pages, dashboards, semantic search, agent context packets — can be rebuilt from it. One write path (`record_event.py`). Corrections append new events. Append-only is an application convention; keep backups of the database and external attachments.
+  ```toml
+  [mcp_servers.open-brane]
+  command = "/path/to/open-brane/.venv/bin/python"
+  args = ["/path/to/open-brane/scripts/starter.py", "run", "--config", "/path/to/open-brane/data/starter.json"]
+  ```
 
-Agents use a local [MCP](https://modelcontextprotocol.io) server to write and retrieve events, report recall usage, propose reasoning edges, and work with contacts, deals, and outreach history. The reusable starter loads this existing server from one JSON configuration. See [the starter guide](docs/STARTER.md) for configuration and provider contracts.
+**HTTP.** With `brane.py serve` running, the MCP endpoint is `http://127.0.0.1:7778/mcp` (Streamable HTTP, not the older SSE transport). Send `Authorization: Bearer <token from data/http-token>`.
 
-## What you get
+```bash
+claude mcp add --transport http open-brane http://127.0.0.1:7778/mcp \
+  --header "Authorization: Bearer $(cat data/http-token)"
+```
+
+For a client that takes JSON, use a `url` plus a `headers` object with the same `Authorization` value. The HTTP token grants full owner access. It is not an OAuth login, and separate trust boundaries need separate deployments. See [Self-hosting](docs/SELF-HOSTING.md) for a VPS, HTTPS, backups, upgrades, token rotation, and troubleshooting.
+
+## Pick up where you left off
+
+The browser home screen lists saved projects (with the next action, when one was explicitly saved), saved documents with their revisions, quick note capture, ranked search, and recent events. **Copy context** copies a project into another session.
+
+Agents use the same workspace:
+
+- `workspace_overview`, `read_saved_project`, `read_saved_document` to find saved work.
+- `save_work_session` to store what changed, decisions, blockers, sources, and a next action. Saves carry an `expected_revision`, so a stale save from an overlapping session is rejected instead of overwriting newer work.
+- `resume_work_session` to bring that context back, with warnings when a referenced document has a newer version.
+- `search_events` for ranked full-text search. Each result has a short `snippet` and says whether every word matched, so an agent can skim twenty results without reading twenty payloads.
+
+Checkpoints and documents keep revision history and can be restored as a new revision. See [Your workspace](docs/WORKSPACE.md) for the full workflow and its limits.
+
+## Hand work between agents by role
+
+Post a task for a role, and whichever agent works that role claims it with the context it needs to start.
+
+- `post_task`: post a task for a role such as `research` or `build`, with a brief, a `done_when` line, an optional `project_id`, and optional `depends_on` task ids.
+- `claim_task`: an agent claims the next open task for its role. It gets the brief plus a briefing: saved notes that already match the task (so known work is not redone), the role's recent outcomes, the results of the tasks this one depends on, and the linked project's saved next action. Claims expire after a lease, so a crashed agent does not block the work.
+- `settle_task`: `done` needs checkable proof: a URL, a commit, a file path, or an `event:<id>` that exists. Free text is refused. `blocked` and `failed` need a reason. An optional lesson is shown to the next agent in the role.
+- `verify_task`: a different agent checks the result and marks it verified or rejected. Work posted with `require_verified` waits for that check.
+- When an upstream task is blocked or rejected, the tasks after it show as `stuck` instead of waiting silently, and a follow-up task (`followup_to`) takes its place.
+- `list_tasks` reads the board, `role_brief` shows a role's queue, stuck work, results awaiting verification and recent lessons, and `renew_claim` extends a long job's lease.
+
+Example: a planner posts `research: compare three hosting options, done_when: a table with prices and links`, then posts a `build` task that `depends_on` it with `require_verified`. A research agent claims the first task and settles it with the URL of its notes, a review agent verifies it, and the build agent's claim now includes that verified outcome. `python3 brane.py tasks` prints the board from the terminal.
+
+After setup, run `python3 brane.py demo roles` to watch three scripted clients do this with temporary data. Every post, claim, and settlement is an append-only event, so the board can be rebuilt from the log and searched like any other note. The browser shows the same board read-only. See [docs/ROLES.md](docs/ROLES.md).
+
+## How it compares
+
+| | Open Brane | Hosted vector memory services | Markdown notes / `CLAUDE.md` files |
+|---|---|---|---|
+| Needs an API key or model | No (semantic search optional) | Usually, for embeddings and extraction | No |
+| Storage | One SQLite file you own | The provider's database, or a vector DB you run | Files in your repo |
+| Multi-agent handoff | Role task board with claims, leases, checkable proof, and second-agent verification | Shared memory, task handoff varies | Manual, by editing files |
+| Audit trail | Append-only event log, revision history | Varies by service | Git history, if committed |
+| Self-hosted | Yes, local or Docker | Some offer a self-hosted edition | Yes |
+| Search | Ranked full-text (FTS5), optional vectors | Semantic similarity | grep, or the agent reads the files |
+
+Vector memory is a better fit when you need fuzzy recall across wording that never overlaps. Plain files are a better fit for a few static instructions. The fuller comparison is in [docs/COMPARISON.md](docs/COMPARISON.md).
+
+## Optional: customer follow-up tools
+
+The browser includes a collapsed **Customer follow-up tools** section for contact facts, interaction history, and follow-up checks, with a matching [authenticated customer API](docs/CUSTOMER-HANDOFF.md). These are optional and the general workspace works without them.
+
+`python3 brane.py demo` runs two scripted MCP clients against temporary synthetic data. They share a call summary, check recent outreach and stale contact facts, and reject a stale document edit. The clients are scripts, not autonomous agents, and the demo sends nothing.
+
+## How it works
+
+Every source you care about is normalized into **one append-only SQLite table called `events`**. That table is the source of truth. Obsidian pages, dashboards, the search index, semantic search, and agent context packets are views that can be rebuilt from it. There is one write path (`record_event.py`), and corrections append new events. Append-only is an application convention, so keep backups of the database and external attachments.
+
+Agents use the [MCP](https://modelcontextprotocol.io) server to write and retrieve events, report which recalled items they used, propose reasoning edges, save checkpoints and documents, hand off tasks, and optionally work with contacts, deals, and outreach history. See [ARCHITECTURE.md](ARCHITECTURE.md) for data flow and schema, and the [starter guide](docs/STARTER.md) for configuration and provider contracts. Existing `starter.py` commands remain supported.
+
+### The three problems it is built for
+
+**1. Context that doesn't drift between agents.**
+Agents write events and read events. The markdown, Google Doc, Notion page, or Obsidian vault is a rendered view that can be rebuilt. If two agents disagree, you diff events.
+
+**2. Definitions that don't fight each other.**
+Store raw source data and compute derived metrics on read. Stripe's MRR calculation and yours will differ, and that is fine, because the events stay raw. A definition-layer query joins over them when someone asks, so no stored derived number drifts from its source.
+
+**3. Pipelines that break silently.**
+Adapters should use stable source identities and deduplicate retries. The canonical writer supports `--dedupe-key`; legacy writes without a key append again. The git and Claude session adapters pass one, so a scheduled re-run returns the existing events instead of appending copies. The vector embedder skips already indexed event IDs. `health_check.py --record` writes its own probe as an event, so you can query uptime history from the same table.
+
+## Design principles
+
+- **Append-only.** No UPDATEs. No DELETEs. Corrections reference prior event IDs.
+- **One write path.** Everything writes through `record_event.py`.
+- **Scripts are pure functions.** Read, compute, write, exit. No state machines, no background workers.
+- **Cron is the orchestrator.** If a script fails, the next tick retries. No queues, no DLQs.
+- **Owner-controlled access.** Use local stdio by default. The included HTTP server requires an owner Bearer token; business filters are not multi-user authentication.
+- **Views are rebuildable.** Obsidian pages, wiki pages, the text-search index, and the vector DB are all derived. Delete and rebuild anytime.
+
+## Stack
+
+| Component | Why |
+|---|---|
+| SQLite (WAL) | A portable event store. Back up and verify your database like any other persistent data. |
+| SQLite FTS5 | Ranked full-text search. The index is rebuildable from `events` (`python3 brane.py reindex`). |
+| MCP (Model Context Protocol) | Agent-to-tool interface spoken by Claude Code, Cursor, Codex, and custom agents. stdio and Streamable HTTP. |
+| Python 3.11+ | The standard library does most of the work. |
+| Ollama + nomic-embed-text | Optional semantic search. The model and dimensions are configurable. |
+| Qdrant | Optional vector index. The included scripts use the Qdrant API; another vector engine requires an adapter. |
+
+## Optional sidecar schemas
+
+The core is one `events` table. That's the contract. Once agents are *writing* events (not just adapters), three more schemas are worth applying:
+
+| Schema | What it adds | Doc |
+|---|---|---|
+| `schemas/governance.sql` | Per-event provenance + review state + use-policy. Enforces "agents cannot self-promote their own writes to instruction-grade" via a SQL CHECK constraint. | `docs/GOVERNANCE.md` |
+| `schemas/recall_traces.sql` | Every retrieval writes a trace; the agent reports back which items it used. Surfaces dead-weight events and bad queries. | `docs/RECALL-TRACE.md` |
+| `schemas/edges.sql` | Typed reasoning edges (supports / contradicts / supersedes / depends_on) with weight, decay, and temporal validity. Powers a `questioned_decisions` view: "active decisions that have surfaced contradictions". | `docs/EDGES.md` |
+
+All three are additive and idempotent. The starter applies them in dependency order; manual installations can apply them one at a time. `scripts/policy_check.py` checks known secret patterns, oversized payloads, and code blobs before writes. It is not a complete sensitive-data scanner.
+
+## Extending
+
+**To add a source** (ClickUp, Stripe, Fathom, Slack, anything): copy `scripts/ingest_gdrive.py`, rewrite the fetch loop, pick a stable dedup fingerprint for the `actor` field, add a cron line. See `docs/ADAPTERS.md`.
+
+**To add a view** (dashboard, PDF export, Slack digest): query `events.db`, format, write. No brain-side changes needed.
+
+**To add an MCP tool**: edit `scripts/mcp_server.py`, add a `@mcp.tool()` function, restart the service.
+
+**To add a daily reflection layer**: see `docs/PATTERN-SCANNER.md` for a four-stage loop (scan, rate, research, promote) that surfaces cross-project tensions, lets you rate them with one click, and suppresses noise. It is a reference design, not yet ported as standalone scripts.
+
+<details>
+<summary><strong>Repository layout</strong></summary>
 
 ```
 open-brane/
@@ -75,11 +224,13 @@ open-brane/
 ├── ARCHITECTURE.md            ← data flow, schema, failure patterns
 ├── SCHEMA.sql                 ← the one table that runs the whole system
 ├── LICENSE                    ← MIT
+├── brane.py                   ← setup / serve / doctor / search / tasks / mcp-config / demo
 ├── requirements.txt
 ├── scripts/
 │   ├── record_event.py        ← the only write path
 │   ├── starter.py             ← validate / initialize / diagnose / run / embed
 │   ├── runtime_config.py      ← deployment JSON → existing environment API
+│   ├── tasks.py               ← role task board (post / claim / settle)
 │   ├── crm.py                 ← event-backed contacts, deals, outreach checks
 │   ├── crm_providers.py       ← optional read-only external contact facts
 │   ├── query_events.py        ← filtered reader
@@ -92,8 +243,8 @@ open-brane/
 │   ├── ingest_claude.py       ← Claude Code sessions → events
 │   ├── ingest_git.py          ← git log / gh api → events
 │   ├── gdrive_extractor.py    ← runs on the machine with Drive mounted
-│   └── mcp_server.py          ← MCP stdio server
-├── schemas/                   ← optional sidecar schemas, apply à la carte
+│   └── mcp_server.py          ← MCP server
+├── schemas/                   ← optional sidecar schemas, apply one at a time
 │   ├── governance.sql         ← provenance / review / use-policy invariant
 │   ├── recall_traces.sql      ← log every retrieval + which items the agent used
 │   └── edges.sql              ← typed reasoning edges with temporal validity
@@ -106,6 +257,10 @@ open-brane/
 ├── systemd/
 │   └── brain-mcp.service      ← template (swap BRAIN_ROOT + bind host)
 └── docs/
+    ├── WORKSPACE.md           ← save, resume, and continue saved work
+    ├── ROLES.md               ← role task board for agent handoffs
+    ├── SELF-HOSTING.md        ← VPS, HTTPS, backups, upgrades, token rotation
+    ├── COMPARISON.md          ← Open Brane vs. vector memory vs. markdown files
     ├── STARTER.md             ← portable setup, MCP tools, CRM provider ABI
     ├── ADAPTERS.md            ← how to write a new ingest adapter
     ├── STRUCTURED-OUTPUTS.md  ← the skill-output-contract pattern
@@ -115,57 +270,7 @@ open-brane/
     └── EDGES.md               ← typed reasoning edges, supports/contradicts/etc.
 ```
 
-## The three hard problems this solves
-
-**1. Context that doesn't drift between agents.**
-Agents don't pass markdown to each other. They write events. They read events. The markdown (or Google Doc, or Notion page, or Obsidian vault) is a rendered view, always rebuildable. If two agents disagree, you diff events.
-
-**2. Definitions that don't fight each other.**
-Store raw source data, compute derived metrics on read. Stripe's MRR calculation and yours will differ — that's fine. The events are raw. A definition layer query joins over them when someone asks. You never pre-compute and store a derived number that drifts from source.
-
-**3. Pipelines that break silently.**
-Adapters should use stable source identities and explicitly deduplicate retries. The canonical writer supports `--dedupe-key`; legacy writes without a key append again. The git and Claude session adapters pass one, so a scheduled re-run returns the existing events instead of appending copies. The vector embedder skips already indexed event IDs. `health_check.py --record` writes its own probe as an event, so you can query your uptime history from the same table.
-
-## Design principles
-
-- **Append-only.** No UPDATEs. No DELETEs. Corrections reference prior event IDs.
-- **One write path.** Everything writes through `record_event.py`. Everything.
-- **Scripts are pure functions.** Read, compute, write, exit. No state machines, no background workers.
-- **Cron is the orchestrator.** If a script fails, the next tick retries. No queues, no DLQs.
-- **Owner-controlled access.** Use local stdio by default. The included HTTP server requires an owner Bearer token; business filters are not multi-user authentication.
-- **Views are rebuildable.** Obsidian pages, wiki pages, the text-search index, vector DB — all derived. Delete and rebuild anytime.
-
-## Stack
-
-| Component | Why |
-|---|---|
-| SQLite (WAL) | A portable event store. Back up and verify your database like any other persistent data. |
-| Ollama + nomic-embed-text | Optional semantic search. The model and dimensions are configurable. |
-| Qdrant | Optional vector index. The included scripts use the Qdrant API; another vector engine requires an adapter. |
-| MCP (Model Context Protocol) | The lingua franca for agent↔tool interfaces. Claude Code, Cursor, custom agents all speak it. |
-| Python 3.11+ | stdlib does 90% of the work. External deps: httpx, qdrant-client, mcp. |
-
-## Optional sidecar schemas
-
-The core is one `events` table. That's the contract. But once you have agents *writing* events (not just adapters), three additional schemas are worth applying:
-
-| Schema | What it adds | Doc |
-|---|---|---|
-| `schemas/governance.sql` | Per-event provenance + review state + use-policy. Enforces "agents cannot self-promote their own writes to instruction-grade" via a SQL CHECK constraint. | `docs/GOVERNANCE.md` |
-| `schemas/recall_traces.sql` | Every retrieval writes a trace; agent reports back which items it used. Surfaces dead-weight events and bad queries. | `docs/RECALL-TRACE.md` |
-| `schemas/edges.sql` | Typed reasoning edges (supports / contradicts / supersedes / depends_on) with weight, decay, and temporal validity. Powers a `questioned_decisions` view: "active decisions that have surfaced contradictions". | `docs/EDGES.md` |
-
-All three are additive and idempotent. The starter applies them in dependency order; manual installations can apply them à la carte. `scripts/policy_check.py` checks known secret patterns, oversized payloads, and code blobs before writes. It is not a complete sensitive-data scanner.
-
-## Extending
-
-**To add a source** (ClickUp, Stripe, Fathom, Slack, anything): copy `scripts/ingest_gdrive.py`, rewrite the fetch loop, pick a stable dedup fingerprint for the `actor` field, add a cron line. See `docs/ADAPTERS.md`.
-
-**To add a view** (dashboard, PDF export, Slack digest): query `events.db`, format, write. No brain-side changes needed.
-
-**To add an MCP tool**: edit `scripts/mcp_server.py`, add a `@mcp.tool()` function, restart the service.
-
-**To add a daily reflection layer**: see `docs/PATTERN-SCANNER.md` — a four-stage loop (scan → rate → research → promote) that surfaces cross-project tensions, lets you rate them with one click, and auto-suppresses noise. Reference impl, not yet ported as standalone scripts.
+</details>
 
 ## License
 
@@ -174,6 +279,8 @@ MIT. See `LICENSE`.
 ## Credits
 
 Built as the persistent-memory layer for a personal agent mesh.
+
+If Open Brane saves you from re-explaining a project to an agent, a star helps other people find it.
 
 ## Related links
 

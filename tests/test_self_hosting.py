@@ -226,6 +226,41 @@ class SelfHostingTests(unittest.TestCase):
         self.assertTrue(result['stale_document_edit_rejected'])
         self.assertEqual(result['messages_sent'], 0)
 
+    def test_scripted_role_handoff_demo(self):
+        proc = subprocess.run([sys.executable, str(ROOT / 'brane.py'), 'demo', 'roles', '--skip-install'],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('settling as done without proof: refused', proc.stdout)
+        self.assertIn('researcher tried to verify its own work: refused', proc.stdout)
+        self.assertIn('verified by lead', proc.stdout)
+        self.assertIn('board: build=claimed, research=done', proc.stdout)
+
+    def test_task_posted_over_http_mcp_shows_on_the_authenticated_board(self):
+        self.start()
+
+        async def run():
+            import httpx
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+            async with httpx.AsyncClient(headers={'Authorization': 'Bearer ' + self.token}, trust_env=False) as client:
+                async with streamable_http_client(self.url + '/mcp', http_client=client) as (reader, writer, _):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        result = await session.call_tool('post_task', {'role': 'review', 'title': 'Check the release notes',
+                            'brief': 'Read them for errors', 'done_when': 'A list of fixes'})
+                        self.assertFalse(result.isError, result)
+        asyncio.run(run())
+        with self.assertRaises(HTTPError) as denied:
+            self.request('/api/tasks')
+        self.assertEqual(denied.exception.code, 401)
+        with self.request('/api/tasks?role=review', token=self.token) as response:
+            board = json.load(response)
+        self.assertEqual([(t['title'], t['status']) for t in board], [('Check the release notes', 'open')])
+        with self.assertRaises(HTTPError) as bad:
+            self.request('/api/tasks?role=Not%20A%20Role', token=self.token)
+        self.assertEqual(bad.exception.code, 400)
+        self.invoke('tasks')
+
     def test_browser_session_conflict_and_restart_handoff_to_mcp(self):
         self.start()
         for path in ('/api/workspace/session', '/api/workspace/session?project_id=work'):

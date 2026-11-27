@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "open-brane"
+dynamic = ["version"]
+description = "Self-hosted memory and role-based task handoff for AI agents. One SQLite file, any MCP client, no API key."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Connor Gallic" }]
+keywords = ["mcp", "model-context-protocol", "ai-agents", "agent-memory", "sqlite", "multi-agent", "claude-code", "codex"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = ["httpx>=0.27", "mcp>=1.26,<2"]
+
+[project.optional-dependencies]
+vectors = ["qdrant-client>=1.11"]
+
+[project.scripts]
+open-brane = "open_brane.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/cgallic/open-brane"
+Source = "https://github.com/cgallic/open-brane"
+Issues = "https://github.com/cgallic/open-brane/issues"
+
+[tool.hatch.version]
+path = "open_brane/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["open_brane"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"brane.py" = "open_brane/brane.py"
+"SCHEMA.sql" = "open_brane/SCHEMA.sql"
+"schemas" = "open_brane/schemas"
+"scripts" = "open_brane/scripts"
+"examples" = "open_brane/examples"
+
+[tool.hatch.build.targets.sdist]
+include = ["open_brane", "brane.py", "SCHEMA.sql", "schemas", "scripts", "examples", "README.md", "LICENSE", "pyproject.toml"]

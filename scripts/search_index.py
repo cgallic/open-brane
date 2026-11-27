@@ -154,19 +154,22 @@ def _row(r, query, match):
             "attachment_uri": r[6], "ingested_at": r[7], "match": match, "snippet": snippet(r[5], query)}
 
 
-def _filters(source, etype, since, until):
+def _filters(source, etype, since, until, exclude=None):
     where, params = [], []
     for clause, value in (("e.source = ?", source), ("e.type = ?", etype),
                           ("e.ts >= ?", since), ("e.ts <= ?", until)):
         if value:
             where.append(clause)
             params.append(value)
+    for skip_source, skip_type in exclude or ():
+        where.append("NOT (e.source = ? AND e.type = ?)")
+        params.extend((skip_source, skip_type))
     return where, params
 
 
-def literal(conn, query, source=None, etype=None, since=None, until=None, limit=50, offset=0):
+def literal(conn, query, source=None, etype=None, since=None, until=None, limit=50, offset=0, exclude=None):
     """Case-insensitive substring search over the stored payload, newest first."""
-    where, params = _filters(source, etype, since, until)
+    where, params = _filters(source, etype, since, until, exclude)
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     where.insert(0, "e.payload_json LIKE ? ESCAPE '\\'")
     rows = conn.execute(f"SELECT {COLUMNS} FROM events e WHERE " + " AND ".join(where)
@@ -175,8 +178,11 @@ def literal(conn, query, source=None, etype=None, since=None, until=None, limit=
     return [_row(r, query, "literal") for r in rows]
 
 
-def search(conn, query, source=None, etype=None, since=None, until=None, limit=50, offset=0):
-    """Ranked search with the fallbacks described in the module docstring."""
+def search(conn, query, source=None, etype=None, since=None, until=None, limit=50, offset=0, exclude=None):
+    """Ranked search with the fallbacks described in the module docstring.
+
+    exclude is an optional list of (source, type) pairs to leave out.
+    """
     quoted = terms(query)
     ranked_ok = bool(quoted)
     if ranked_ok:
@@ -187,7 +193,7 @@ def search(conn, query, source=None, etype=None, since=None, until=None, limit=5
             conn.rollback()
             ranked_ok = False
     if ranked_ok:
-        where, params = _filters(source, etype, since, until)
+        where, params = _filters(source, etype, since, until, exclude)
         sql = (f"SELECT {COLUMNS} FROM {TABLE} f JOIN events e ON e.id = f.rowid "
                f"WHERE {TABLE} MATCH ?" + "".join(" AND " + w for w in where)
                + f" ORDER BY bm25({TABLE}, {WEIGHTS}), e.id DESC LIMIT ? OFFSET ?")
@@ -198,7 +204,7 @@ def search(conn, query, source=None, etype=None, since=None, until=None, limit=5
             rows = conn.execute(sql, [expression, *params, limit, offset]).fetchall()
             if rows:
                 return [_row(r, query, match) for r in rows]
-    return literal(conn, query, source, etype, since, until, limit, offset)
+    return literal(conn, query, source, etype, since, until, limit, offset, exclude)
 
 
 def main():

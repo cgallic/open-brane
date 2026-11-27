@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cgallic/open-brane",
+  "title": "Open Brane",
+  "description": "Self-hosted agent memory and role task handoff with checkable proof. One SQLite file, no API key.",
+  "repository": {
+    "url": "https://github.com/cgallic/open-brane",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/cgallic/open-brane",
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "open-brane",
+      "version": "0.4.0",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "run" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "OPEN_BRANE_HOME",
+          "description": "Folder for the database, config and access token. Defaults to ~/.open-brane.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

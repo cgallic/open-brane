@@ -46,3 +46,7 @@ Thumbs.db
 .env
 .env.*
 http-token
+
+# Package builds
+dist/
+build/

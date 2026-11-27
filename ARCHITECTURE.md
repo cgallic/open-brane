@@ -143,17 +143,16 @@ One service. The only way agents interact with the brain.
 
 Tools exposed (names match Python functions in `mcp_server.py`):
 
-| Tool | What it does |
+| Group | Tools |
 |---|---|
-| `record_event(source, type, payload, [actor], [ts])` | Append one event. The write API. |
-| `query_events(source?, type?, actor?, since?, until?, limit?)` | Filtered SQL. Returns list of events. |
-| `semantic_search(query, limit?, source?)` | Embed query, cosine top-k from Qdrant, join payload from events.db. |
-| `get_context_for_task(task)` | Semantic search + recency + actor bias → one context packet for the agent. |
-| `build_memory_packet(type, subject)` | Longer-form packet: events + wiki summaries + decision log refs. |
-| `compile_journal(date?)` | Recompile a day's journal from events. |
-| `health_check()` | Probe infra. |
+| Events | `record_event` (the write API), `query_events`, `search_events` (ranked full-text, no model), `semantic_search` (optional vectors), `health_check` |
+| Recall feedback | `report_usage`, `propose_edge` (need the recall-trace and edges schemas) |
+| Workspace | `workspace_overview`, `read_saved_project`, `read_saved_document`, `save_work_session`, `resume_work_session` |
+| Role task board | `post_task`, `claim_task`, `renew_claim`, `settle_task`, `verify_task`, `list_tasks`, `role_brief` (see `docs/ROLES.md`) |
+| Checkpoints and documents | `create_connection`, `revoke_connection`, `save_project_checkpoint`, `project_checkpoint_history`, `restore_project_checkpoint`, `resume_project_checkpoint`, `create_artifact`, `read_artifact`, `edit_artifact`, `artifact_history`, `restore_artifact`, `export_artifact` |
+| Optional CRM | `check_outreach`, `outreach_history`, `find_contact`, `log_outreach`, `customer_context`, `upsert_contact`, `upsert_deal`, `get_pipeline` |
 
-**Deployment:** `systemd/brain-mcp.service` wraps `mcp-proxy` to expose stdio MCP over HTTP/SSE. Agents connect to `http://<tailscale-ip>:7778`. On your VPS that'll be the Tailscale IP of the host (or `127.0.0.1` if agents run on the same box).
+**Deployment:** `python3 brane.py serve` exposes the same tools over authenticated Streamable HTTP at `/mcp` (Bearer token from `data/http-token`), next to the browser UI. Local agents can use stdio through `python3 brane.py mcp-config`. See `docs/SELF-HOSTING.md`.
 
 **Why one server:** Every agent hits the same API. No divergent access patterns. Rate limits, auth, observability all in one place.
 
