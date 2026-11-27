@@ -1,0 +1,42 @@
+name: Publish
+# Runs when a GitHub release is published. Needs a one-time PyPI "trusted
+# publisher" for this repository and workflow (pypi.org > Publishing); no
+# API tokens are stored. The MCP Registry login uses this workflow's OIDC token.
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check versions match the release tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          python - "$tag" <<'PY'
+          import json, re, sys
+          tag = sys.argv[1]
+          code = re.search(r'__version__ = "([^"]+)"', open('open_brane/__init__.py').read()).group(1)
+          server = json.load(open('server.json'))
+          versions = {code, server['version'], server['packages'][0]['version']}
+          assert versions == {tag}, f'release {tag} but versions are {versions}'
+          PY
+      - run: python -m pip install build && python -m build
+      - name: Smoke test the wheel
+        run: |
+          python -m venv /tmp/wheel && /tmp/wheel/bin/pip install dist/*.whl
+          OPEN_BRANE_HOME=/tmp/brane /tmp/wheel/bin/open-brane doctor
+          /tmp/wheel/bin/open-brane demo roles
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to the MCP Registry
+        run: |
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          for i in 1 2 3 4 5; do ./mcp-publisher publish && exit 0; sleep 30; done; exit 1

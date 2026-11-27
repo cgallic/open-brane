@@ -1,5 +1,7 @@
 # Open Brane
 
+<!-- mcp-name: io.github.cgallic/open-brane -->
+
 **Self-hosted memory and task handoff for AI agents: one SQLite file, any MCP client, no API key.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -35,6 +37,16 @@ python3 brane.py search pricing decision
 ```
 
 Words can appear in any order and the best match comes first. Put an exact phrase in quotes.
+
+### Install as a command
+
+With [uv](https://docs.astral.sh/uv/) or pipx, no clone is needed. Data goes to `~/.open-brane` (set `OPEN_BRANE_HOME` to move it), and the first run creates it.
+
+```bash
+uvx open-brane serve          # or: pipx install open-brane && open-brane serve
+```
+
+As a stdio MCP server, the client config is `{"command": "uvx", "args": ["open-brane", "run"]}`. Every `brane.py` command works the same way, for example `uvx open-brane tasks` or `uvx open-brane demo roles`.
 
 ### Docker
 
