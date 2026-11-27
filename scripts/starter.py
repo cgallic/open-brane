@@ -14,10 +14,12 @@ from runtime_config import ROOT, apply_config
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "init", "run", "doctor", "embed", "serve", "search", "reindex"))
+    parser.add_argument("command", choices=("validate", "init", "run", "doctor", "embed", "serve", "search", "reindex", "tasks"))
     # An option, not an optional positional: Python 3.11 argparse rejects that after other options.
     parser.add_argument("--query", help="words to find (search only)")
     parser.add_argument("--limit", type=int, default=10, help="results to print (search only)")
+    parser.add_argument("--role", help="filter by role (tasks only)")
+    parser.add_argument("--status", help="filter by status (tasks only)")
     parser.add_argument("--config", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7778)
@@ -65,6 +67,17 @@ def main() -> int:
             if not rows:
                 print("No matching events.", file=sys.stderr)
             return 0
+        if args.command == "tasks":
+            import tasks
+            rows = tasks.list_tasks(args.role, args.status, args.limit if args.limit != 10 else 50)
+            for t in rows:
+                who = f"  ({t['claim']['agent']})" if t["status"] == "claimed" else ""
+                print(f"{t['task_id']}  {t['status']:<8} {t['role']:<12} {t['title']}{who}")
+                if t["settlement"]:
+                    print(f"    {t['settlement']['outcome'][:160]}")
+            if not rows:
+                print("No tasks yet. Agents post them with the post_task tool.", file=sys.stderr)
+            return 0
         if args.command == "embed":
             if not config.get("vectors", {}).get("enabled", False):
                 # Core installs do not have the vector client; say so instead of a traceback.
@@ -88,7 +101,7 @@ def main() -> int:
             report["vector_health"] = {"status": "disabled", "semantic_search_available": False}
         print(json.dumps(report))
         return 0 if report["status"] == "ok" else 1
-    except (ValueError, OSError, sqlite3.Error) as exc:
+    except (ValueError, OSError, sqlite3.Error, LookupError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "error": str(exc)}), file=sys.stderr)
         return 1
 

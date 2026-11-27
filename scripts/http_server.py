@@ -120,6 +120,18 @@ def create_app(config_path):
         except (OSError, sqlite3.Error):
             return JSONResponse({'error': 'Workspace store unavailable'}, status_code=503)
 
+    async def task_board(request):
+        import tasks
+        try:
+            if set(request.query_params) - {'role', 'status', 'limit'}:
+                raise ValueError('Unsupported query parameter')
+            return JSONResponse(await run_in_threadpool(tasks.list_tasks, request.query_params.get('role'),
+                request.query_params.get('status'), int(request.query_params.get('limit', '50'))))
+        except (ValueError, TypeError):
+            return JSONResponse({'error': 'Invalid task board request'}, status_code=400)
+        except (OSError, sqlite3.Error):
+            return JSONResponse({'error': 'Task board unavailable'}, status_code=503)
+
     def browser_connection():
         import customer_runtime as customer
         from contextlib import closing
@@ -176,6 +188,7 @@ def create_app(config_path):
         Route('/api/interactions', customer_workflow, methods=['POST']),
         Route('/api/customer-context', customer_workflow),
         Route('/api/workspace', saved_workspace),
+        Route('/api/tasks', task_board),
         Route('/api/workspace/session', work_session, methods=['GET', 'POST']),
         Route('/api/workspace/project', saved_workspace),
         Route('/api/workspace/document', saved_workspace)])

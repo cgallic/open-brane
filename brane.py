@@ -47,9 +47,11 @@ def initialize(path, business):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config', 'demo', 'search', 'reindex'))
+    parser.add_argument('command', choices=('setup', 'serve', 'run', 'doctor', 'mcp-config', 'demo', 'search', 'reindex', 'tasks'))
     parser.add_argument('query', nargs='*', help='words to find, for the search command')
     parser.add_argument('--limit', type=int, default=10, help='results to print, for the search command')
+    parser.add_argument('--role', help='filter by role, for the tasks command')
+    parser.add_argument('--status', help='filter by status, for the tasks command')
     parser.add_argument('--config', type=Path, default=ROOT / 'data/starter.json')
     parser.add_argument('--business', default='personal', help='deployment identifier for first setup')
     parser.add_argument('--host', default='127.0.0.1')
@@ -73,7 +75,8 @@ def main():
     if args.command == 'demo':
         if not python.exists():
             parser.error('Python environment missing; run python3 brane.py setup')
-        return subprocess.call([str(python), str(ROOT / 'examples/demo_customer_handoff.py')])
+        script = 'demo_role_handoff.py' if args.query == ['roles'] else 'demo_customer_handoff.py'
+        return subprocess.call([str(python), str(ROOT / 'examples' / script)])
     if not config.exists():
         parser.error('run python3 brane.py setup first, or supply --config')
     if not python.exists():
@@ -84,6 +87,10 @@ def main():
     command = [str(python), str(ROOT / 'scripts/starter.py'), args.command, '--config', str(config)]
     if args.command == 'search':
         command.extend(['--query', ' '.join(args.query), '--limit', str(args.limit)])
+    if args.command == 'tasks':
+        command.extend(['--limit', str(args.limit if args.limit != 10 else 50)])
+        command.extend(['--role', args.role] if args.role else [])
+        command.extend(['--status', args.status] if args.status else [])
     if args.command == 'serve':
         command.extend(['--host', args.host, '--port', str(args.port)])
     return subprocess.call(command)

@@ -15,6 +15,7 @@ Tools exposed:
 - search_events     — ranked full-text search, no model or vector service
 - check_outreach / outreach_history / find_contact / log_outreach — CRM contact context
 - upsert_contact / upsert_deal / get_pipeline — event-backed CRM snapshots
+- post_task / claim_task / settle_task / list_tasks / role_brief — hand work between agents by role
 
 Use brane.py serve for authenticated Streamable HTTP and the browser UI.
 
@@ -513,6 +514,61 @@ def get_pipeline(limit: int = 50, business_id: str | None = None) -> list[dict]:
     """Read current deal snapshots for this business."""
     import crm
     return crm.get_pipeline(limit=limit, business_id=business_id)
+
+
+@mcp.tool()
+def post_task(role: str, title: str, brief: str, done_when: str, posted_by: str | None = None,
+              project_id: str | None = None, depends_on: list[str] | None = None,
+              context_event_ids: list[int] | None = None, request_id: str | None = None) -> dict:
+    """Post a task for a role (for example research, build, review, writer).
+
+    brief says what to do; done_when says what finished looks like. project_id links a
+    saved project so the claiming agent gets its next action. depends_on lists task ids
+    that must be done first; their outcomes are handed to the claiming agent. Pass a
+    request_id to make a retried post return the same task instead of a duplicate.
+    """
+    import tasks
+    return tasks.post_task(role, title, brief, done_when, posted_by, project_id, depends_on,
+                           context_event_ids, request_id)
+
+
+@mcp.tool()
+def claim_task(role: str, agent: str, lease_minutes: int = 120, task_id: str | None = None) -> dict:
+    """Claim the oldest open task for your role and get a briefing to start from.
+
+    The briefing holds the role's recent outcomes, results of the tasks this one
+    depends on, linked context events and the linked project's saved next action.
+    The claim lasts lease_minutes; after that the task can be claimed by another
+    agent. Returns task=None when the role has nothing ready.
+    """
+    import tasks
+    return tasks.claim_task(role, agent, lease_minutes, task_id)
+
+
+@mcp.tool()
+def settle_task(task_id: str, claim_id: str, agent: str, status: str, outcome: str,
+                proof: list[str] | None = None) -> dict:
+    """Finish a claimed task: status done, blocked or failed.
+
+    done requires at least one proof item (URL, commit, file path, event id).
+    For blocked or failed, say in outcome exactly what is missing.
+    """
+    import tasks
+    return tasks.settle_task(task_id, claim_id, agent, status, outcome, proof)
+
+
+@mcp.tool()
+def list_tasks(role: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
+    """Read the task board. status: open, waiting, claimed, done, blocked or failed."""
+    import tasks
+    return tasks.list_tasks(role, status, limit)
+
+
+@mcp.tool()
+def role_brief(role: str, limit: int = 10) -> dict:
+    """Read first when you start in a role: its open queue, active claims and recent results."""
+    import tasks
+    return tasks.role_brief(role, limit)
 
 
 @mcp.tool()
